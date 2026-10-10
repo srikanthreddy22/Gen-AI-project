@@ -1,0 +1,68 @@
+{
+  "scenes": [
+    {
+      "id": "study-desk",
+      "src": "/backgrounds/study-desk.webp",
+      "label": "Study desk",
+      "credit": "Bikram Bezbaruah, Pexels",
+      "focal": "50% 48%",
+      "source": "https://www.pexels.com/photo/a-woman-with-eyeglasses-writing-on-white-paper-under-a-light-8921700/"
+    },
+    {
+      "id": "library-stacks",
+      "src": "/backgrounds/library-stacks.webp",
+      "label": "Library stacks",
+      "credit": "Lobna Mahmoud, Pexels",
+      "focal": "50% 48%",
+      "source": "https://www.pexels.com/photo/library-shelves-stacked-with-books-10402079/"
+    },
+    {
+      "id": "lecture-chalk",
+      "src": "/backgrounds/lecture-chalk.webp",
+      "label": "Lecture chalk",
+      "credit": "Vitaly Gariev, Pexels",
+      "focal": "52% 48%",
+      "source": "https://www.pexels.com/photo/close-up-of-complicated-equations-written-on-a-blackboard-22690752/"
+    },
+    {
+      "id": "annotated-paper",
+      "src": "/backgrounds/annotated-paper.webp",
+      "label": "Annotated paper",
+      "credit": "Magda Ehlers, Pexels",
+      "focal": "50% 48%",
+      "source": "https://www.pexels.com/photo/cursive-handwriting-on-paper-5337734/"
+    },
+    {
+      "id": "rain-window",
+      "src": "/backgrounds/rain-window.webp",
+      "label": "Rain window",
+      "credit": "Esra Erdem, Pexels",
+      "focal": "50% 48%",
+      "source": "https://www.pexels.com/photo/a-vintage-oil-lamp-standing-on-a-windowsill-18985777/"
+    },
+    {
+      "id": "neural-light",
+      "src": "/backgrounds/neural-light.webp",
+      "label": "Neural light",
+      "credit": "Rostislav Uzunov, Pexels",
+      "focal": "50% 50%",
+      "source": "https://www.pexels.com/photo/abstract-futuristic-digital-tunnel-illusion-30820142/"
+    },
+    {
+      "id": "mind-map",
+      "src": "/backgrounds/mind-map.webp",
+      "label": "Mind map",
+      "credit": "Jessica Lewis, Pexels",
+      "focal": "50% 48%",
+      "source": "https://www.pexels.com/photo/financial-diagram-notes-10024577/"
+    },
+    {
+      "id": "exam-hall",
+      "src": "/backgrounds/exam-hall.webp",
+      "label": "Exam hall",
+      "credit": "Jessica Olivella, Pexels",
+      "focal": "50% 50%",
+      "source": "https://www.pexels.com/photo/empty-classroom-chairs-and-desks-in-school-setting-37829287/"
+    }
+  ]
+}

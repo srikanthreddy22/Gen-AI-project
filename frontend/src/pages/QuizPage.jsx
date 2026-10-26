@@ -46,7 +46,7 @@ export default function QuizPage() {
     }
 
     setIsGeneratingNew(true)
-    const toastId = toast.loading('Generating 5 new assessment questions…')
+    const toastId = toast.loading('Regenerating questions...')
 
     try {
       // Collect previously asked question texts
@@ -65,7 +65,9 @@ export default function QuizPage() {
         setScore(0)
         setDone(false)
 
-        if (res.data.insufficient_material) {
+        if (res.data.generation_method === 'demo-static') {
+          toast.success(res.data.message || 'Questions regenerated.', { id: toastId })
+        } else if (res.data.insufficient_material) {
           toast.success(
             `Generated ${newQuestions.length} new question(s). ${res.data.message || 'All distinct concepts covered.'}`,
             { id: toastId, duration: 4000 }
@@ -132,12 +134,12 @@ export default function QuizPage() {
           {isGeneratingNew ? (
             <>
               <Loader2 size={18} className="animate-spin" />
-              <span>Generating New Questions...</span>
+              <span>Regenerating...</span>
             </>
           ) : (
             <>
               <Sparkles size={18} />
-              <span>Generate New Questions</span>
+              <span>Regenerate Questions</span>
             </>
           )}
         </motion.button>
@@ -165,6 +167,11 @@ export default function QuizPage() {
           <div className="flex items-center gap-2 text-sm px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-zinc-300 backdrop-blur-md">
             Score: <span className="font-bold text-violet-400 font-mono ml-1">{score}</span>
           </div>
+          <button type="button" onClick={handleGenerateNewQuestions} disabled={isGeneratingNew}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-violet-600/80 hover:bg-violet-500 border border-violet-500/50 disabled:opacity-60">
+            {isGeneratingNew ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+            {isGeneratingNew ? 'Regenerating...' : 'Regenerate Questions'}
+          </button>
         </motion.div>
 
         {/* Progress */}

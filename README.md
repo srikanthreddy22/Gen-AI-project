@@ -104,12 +104,15 @@ cp .env.example .env
 Update `.env` with your values. At minimum, set `OPENAI_API_KEY` if you want the RAG-backed generation features:
 
 ```env
+DEMO_MODE=false
 OPENAI_API_KEY=your_key_here
 OPENAI_GENERATION_MODEL=gpt-4o-mini
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 RAG_TOP_K=8
 ADMIN_API_KEY=optional_admin_key
 ```
+
+Set `DEMO_MODE=true` in `backend/.env` (or in the backend service environment) for a fast presentation flow. It validates a small sample from the uploaded PDF and returns the fixed machine-learning quiz and flashcards without loading the RAG/LLM generation pipeline. The demo questions are the same for every uploaded PDF and are not derived from its contents. Set `DEMO_MODE=false` to restore the existing AI/RAG processing path.
 
 Start the backend:
 
@@ -155,6 +158,7 @@ The current backend exposes these routes:
 
 - The default summarizer uses a TF-IDF extractive pipeline in `backend/app/services/summarizer.py`.
 - The application also includes an OpenAI + RAG generation service for flashcards and quizzes when `OPENAI_API_KEY` is configured.
+- Quiz questions are checked against the indexed source; if the configured model is unavailable, a lightweight extractive fallback uses clear concept statements and returns fewer questions rather than inventing unsupported ones.
 - If the key is missing, the app can still run in local demo mode, but AI-generated content features will not be fully available.
 
 ## Testing

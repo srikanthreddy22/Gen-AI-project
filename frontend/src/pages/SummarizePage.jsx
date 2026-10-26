@@ -21,6 +21,17 @@ export default function SummarizePage() {
   const [inputType, setInputType] = useState('upload') // 'upload' | 'paste'
   const [pastedText, setPastedText] = useState('')
 
+  const applyDemoMaterials = (data, file = null) => {
+    if (!data?.demo_mode) return false
+    if (file) store.setUploadedFile(file)
+    store.setDocumentId(data.doc_id)
+    store.setResult(data.summary)
+    store.setFlashcards(data.flashcards || [])
+    store.setQuizQuestions(data.questions || [])
+    useNoteStore.setState({ currentFlashcard: 0, flashcardFlipped: false })
+    return true
+  }
+
   useEffect(() => {
     let interval
     if (store.isProcessing) {
@@ -44,6 +55,10 @@ export default function SummarizePage() {
       let activeDocId = docId
       if (!activeDocId) {
         const indexRes = await indexText(text)
+        if (applyDemoMaterials(indexRes.data, file)) {
+          toast.success(indexRes.data.message || 'Demo study materials are ready!')
+          return
+        }
         activeDocId = indexRes.data?.doc_id
         if (!activeDocId || !indexRes.data?.indexed) {
           throw new Error('The pasted text could not be indexed for study content generation.')
@@ -100,6 +115,11 @@ export default function SummarizePage() {
     store.setProcessing(true)
     try {
       const res = await uploadPDF(file)
+      if (applyDemoMaterials(res.data, file)) {
+        toast.success(res.data.message || 'PDF uploaded successfully. Demo study materials are ready!')
+        store.setProcessing(false)
+        return
+      }
       const activeDocId = res.data?.doc_id
       if (!activeDocId || !res.data?.indexed) {
         throw new Error('The uploaded document could not be indexed for study content generation.')

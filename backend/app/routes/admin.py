@@ -3,8 +3,6 @@ import shutil
 import uuid
 from flask import Blueprint, request, jsonify
 
-from ..services import rag_service, vector_store
-
 bp = Blueprint("admin", __name__)
 
 ADMIN_KEY = os.getenv("ADMIN_API_KEY")
@@ -21,11 +19,18 @@ def _require_admin(req):
     return True, None
 
 
+def _load_rag_services():
+    from ..services import rag_service, vector_store
+
+    return rag_service, vector_store
+
+
 @bp.route("/admin/reindex", methods=["POST"])
 def reindex_route():
     ok, err = _require_admin(request)
     if not ok:
         return jsonify({"error": err[1]}), 401
+    rag_service, vector_store = _load_rag_services()
 
     data = request.get_json(silent=True) or {}
     doc_id = data.get("doc_id")
@@ -159,6 +164,7 @@ def inspect_index():
     if not doc_id:
         return jsonify({"error": "doc_id is required"}), 400
 
+    _, vector_store = _load_rag_services()
     chunks = vector_store.get_document_chunks(doc_id)
     if not chunks:
         return jsonify({"error": "Document not found"}), 404
@@ -198,6 +204,7 @@ def inspect_retrieval():
     if not doc_id or not query:
         return jsonify({"error": "doc_id and query are required"}), 400
 
+    rag_service, vector_store = _load_rag_services()
     # generate query embedding and candidates
     try:
         q_emb = rag_service.get_embeddings([query])[0]

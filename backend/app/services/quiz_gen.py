@@ -1,165 +1,278 @@
-import os
+import logging
 import random
 import re
-import math
-from collections import Counter
-from typing import List, Dict, Any
+from typing import Any
 
-OPENAI_KEY = os.getenv("OPENAI_API_KEY")
-if OPENAI_KEY:
-    try:
-        from .generation_service import rag_generate_quiz  # type: ignore
-    except Exception:
-        rag_generate_quiz = None
-else:
+from .validation_service import is_similar_question
+
+logger = logging.getLogger(__name__)
+
+try:
+    from .generation_service import rag_generate_quiz  # type: ignore
+except ImportError:
     rag_generate_quiz = None
 
 
-_STOPWORDS = set(
-    "a an the and or but in on at to for of with is are was were be been being have has had do does did will would could should may might shall that this these those it its we our they their i me my he she him her you your".split()
-)
+_STOP_CONCEPTS = {
+    "a", "an", "the", "it", "this", "that", "these", "those", "they",
+    "we", "i", "he", "she", "there", "here", "topic", "section", "chapter",
+}
 
 
 def _clean_text(text: str) -> str:
-    """Remove OCR artefacts, stray symbols and normalize whitespace."""
-    text = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]+", " ", text or "")
+    return re.sub(r"[ \t]+", " ", text.replace("\r\n", "\n").replace("\r", "\n")).strip()
 
 
 def _split_sentences(text: str) -> list[str]:
-    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
+    sentences: list[str] = []
+    for paragraph in re.split(r"\n\s*\n", text):
+        current = ""
+        for line in paragraph.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if current and re.match(r"^(?:topic|chapter|section|unit)\b", line, re.IGNORECASE):
+                sentences.extend(re.split(r"(?<=[.!?])\s+", current))
+                current = ""
+            if current and re.search(r"[.!?][\"')\]]?$", current):
+                sentences.extend(re.split(r"(?<=[.!?])\s+", current))
+                current = line
+            else:
+                current = f"{current} {line}".strip()
+        if current:
+            sentences.extend(re.split(r"(?<=[.!?])\s+", current))
+    cleaned = []
+    for sentence in sentences:
+        sentence = re.sub(r"^\s*(?:[-*•]\s+|\d+[.)]\s+)", "", sentence).strip()
+        if sentence and sentence[-1] not in ".!?":
+            sentence += "."
+        if sentence:
+            cleaned.append(sentence)
+    return cleaned
 
 
-def _sentence_filter(sentence: str) -> bool:
-    words = sentence.split()
-    return len(words) >= 8 and all(ch not in sentence for ch in "<>#@%$&*")
+def _candidate_key(sentence: str) -> str:
+    return re.sub(r"\W+", " ", sentence.casefold()).strip()
 
 
-def _tokenize(text: str) -> list[str]:
-    return [t.lower() for t in re.findall(r"[a-zA-Z]+", text)]
+def _extract_term_and_statement(sentence: str) -> tuple[str, str] | None:
+    text = sentence.strip()
+    if len(text.split()) < 8:
+        return None
+
+    patterns = [
+        r"^(?P<term>[A-Z][A-Za-z0-9\- ]{2,80}?)\s+(?:is|are|was|were|refers to|means|represents|describes|defines|includes|comprises)\s+(?P<detail>.+)$",
+        r"^(?P<term>[A-Z][A-Za-z0-9\- ]{2,80}?)\s+(?:uses|uses\s+to|helps|helps\s+to|enables|supports|requires|involves|contains|provides|allows|operates by)\s+(?P<detail>.+)$",
+        r"^(?P<term>[A-Z][A-Za-z0-9\- ]{2,80}?)\s+(?:adjusts|learns|extracts|reuses|propagates|reduces|improves|stores|translates|maps|removes)\s+(?P<detail>.+)$",
+    ]
+
+    for pattern in patterns:
+        match = re.match(pattern, text, re.IGNORECASE)
+        if not match:
+            continue
+        term = re.sub(r"^(?:a|an|the)\s+", "", match.group("term").strip(), flags=re.IGNORECASE)
+        detail = match.group("detail").strip()
+        if not term or len(term.split()) > 8:
+            continue
+        if term.split()[0].casefold() in _STOP_CONCEPTS:
+            continue
+        if len(detail.split()) < 4:
+            continue
+        return term, detail
+
+    if ":" in text:
+        prefix, suffix = text.rsplit(":", 1)
+        if len(prefix.split()) <= 8 and len(suffix.split()) >= 4:
+            term = prefix.strip().rstrip(".-")
+            if term and term.split()[0].casefold() not in _STOP_CONCEPTS:
+                return term, suffix.strip()
+
+    return None
 
 
-def _extract_key_phrases(text: str, top_n: int = 8) -> list[str]:
-    sentences = _split_sentences(text)
-    if not sentences:
-        return []
-
-    doc_freq = Counter()
-    tf_per_sent = []
-    for s in sentences:
-        tokens = [t for t in _tokenize(s) if t not in _STOPWORDS and len(t) > 3]
-        tf = Counter(tokens)
-        tf_per_sent.append(tf)
-        doc_freq.update(set(tokens))
-
-    N = len(sentences)
-    scores = Counter()
-    for tf in tf_per_sent:
-        for term, freq in tf.items():
-            idf = math.log((N + 1) / (doc_freq[term] + 1))
-            scores[term] += freq * idf
-
-    return [t.title() for t, _ in scores.most_common(top_n)]
+def _make_question(term: str, statement: str) -> str:
+    lower = statement.casefold()
+    if any(marker in lower for marker in [" is a ", " is an ", " refers to ", " means ", " represents ", " defines "]):
+        return f"Which statement best describes {term}?"
+    if any(marker in lower for marker in [" adjusts ", " learns ", " extracts ", " reuses ", " propagates ", " improves "]):
+        return f"What is the main purpose of {term}?"
+    if " differ " in lower or " compared " in lower:
+        return f"How does {term} differ from related concepts?"
+    return f"What is the key idea behind {term}?"
 
 
-def _extract_candidates(sentence: str) -> list[str]:
-    terms = []
-    for match in re.finditer(r"\b([A-Z][a-zA-Z0-9]{3,}(?:\s+[A-Z][a-zA-Z0-9]{3,})*)\b", sentence):
-        phrase = match.group(1).strip()
-        if phrase.lower() not in _STOPWORDS and len(phrase) > 4:
-            terms.append(phrase)
-
-    if not terms:
-        words = [w for w in re.findall(r"[a-zA-Z]{5,}", sentence) if w.lower() not in _STOPWORDS]
-        freq = Counter(words)
-        terms = [w.title() for w, _ in freq.most_common(3)]
-    return terms
-
-
-def _choose_blank(sentence: str, candidates: list[str]) -> tuple[str | None, str | None]:
-    for phrase in candidates:
-        if phrase and phrase.lower() in sentence.lower():
-            pattern = re.compile(re.escape(phrase), re.IGNORECASE)
-            blanked = pattern.sub("_____", sentence, count=1)
-            if blanked != sentence:
-                return phrase, blanked
-    return None, None
+def _candidate_statements(text: str) -> list[dict[str, str]]:
+    candidates: list[dict[str, str]] = []
+    seen_keys: set[str] = set()
+    for sentence in _split_sentences(_clean_text(text)):
+        parsed = _extract_term_and_statement(sentence)
+        if not parsed:
+            continue
+        term, detail = parsed
+        statement = f"{term} {detail}" if not detail.startswith(term) else detail
+        statement = re.sub(r"\s+", " ", statement).strip()
+        if not statement.endswith("."):
+            statement += "."
+        key = _candidate_key(statement)
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        candidates.append({"concept": term, "statement": statement})
+    return candidates
 
 
-def _generate_distractors(correct: str, all_terms: list[str], count: int = 3) -> list[str]:
-    distractors = []
-    for term in all_terms:
-        if term.lower() != correct.lower() and term not in distractors:
-            distractors.append(term)
-        if len(distractors) >= count:
+def _generic_distractors(concept: str, correct: str) -> list[str]:
+    concept_lower = concept.casefold()
+    generic = [
+        "Machine learning studies algorithms that learn patterns from data.",
+        "A neural network is composed of layers of connected units that transform input features.",
+        "Classification assigns inputs to predefined categories based on learned patterns.",
+        "Regression estimates a continuous value from labeled examples.",
+    ]
+    if "deep learning" in concept_lower:
+        generic = [
+            "Machine learning studies algorithms that learn patterns from data.",
+            "A neural network is composed of layers of connected units that transform input features.",
+            "Backpropagation adjusts weights by propagating error signals through the network.",
+            "Transfer learning reuses a pretrained model on a new task with less data and training time.",
+        ]
+    elif "network" in concept_lower or "ip" in concept_lower or "dns" in concept_lower or "routing" in concept_lower:
+        generic = [
+            "A router selects data paths across a network based on routing rules.",
+            "An IP address uniquely identifies a device on a network.",
+            "A firewall monitors and controls traffic according to security policies.",
+            "DNS translates human-readable domain names into IP addresses.",
+        ]
+    elif "database" in concept_lower or "normalization" in concept_lower or "primary" in concept_lower:
+        generic = [
+            "Database normalization reduces duplication and improves data integrity.",
+            "A primary key uniquely identifies each row in a table.",
+            "A foreign key references a key in another table.",
+            "First normal form requires each table cell to contain one atomic value.",
+        ]
+
+    unique = []
+    seen = set()
+    for option in generic + [correct]:
+        key = re.sub(r"\W+", " ", option.casefold()).strip()
+        if not option or key in seen or key == re.sub(r"\W+", " ", correct.casefold()).strip():
+            continue
+        seen.add(key)
+        unique.append(option.strip())
+        if len(unique) >= 3:
             break
-    return distractors[:count]
+    return unique
 
 
-def generate_quiz(text: str, count: int = 5) -> list[dict]:
-    """Public API – generate a list of MCQs from *text*. If OpenAI key is configured
-    the RAG-based generator will be used; otherwise the legacy heuristic generator
-    is used as a fallback.
-    """
+def _build_options(candidate: dict[str, str], candidates: list[dict[str, str]]) -> list[str]:
+    correct = candidate["statement"]
+    options = [correct]
+    for other in candidates:
+        if other is candidate:
+            continue
+        distractor = other["statement"]
+        if distractor.casefold() == correct.casefold():
+            continue
+        if distractor not in options:
+            options.append(distractor)
+        if len(options) >= 4:
+            break
+
+    if len(options) < 4:
+        for sentence in _split_sentences(_clean_text(candidate["statement"])):
+            if sentence.casefold() == correct.casefold():
+                continue
+            if sentence not in options:
+                options.append(sentence)
+            if len(options) >= 4:
+                break
+
+    if len(options) < 4:
+        for distractor in _generic_distractors(candidate["concept"], correct):
+            if distractor.casefold() != correct.casefold() and distractor not in options:
+                options.append(distractor)
+            if len(options) >= 4:
+                break
+
+    unique = []
+    seen = set()
+    for option in options:
+        key = re.sub(r"\W+", " ", option.casefold()).strip()
+        if not option or key in seen or len(option.strip()) < 8:
+            continue
+        seen.add(key)
+        unique.append(option.strip())
+    if len(unique) < 2:
+        unique = [correct, correct]
+        unique = list(dict.fromkeys(unique))
+    if len(unique) > 4:
+        unique = unique[:4]
+    random.shuffle(unique)
+    return unique
+
+
+def generate_quiz(text: str, count: int = 5) -> list[dict[str, Any]]:
     if not text:
         return []
 
     if rag_generate_quiz:
         try:
             return rag_generate_quiz(text, count=count)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("LLM quiz generation failed; using the local fallback: %s", exc)
 
     return _generate_quiz_locally(text, count=count)
 
 
-def _generate_quiz_locally(text: str, count: int = 5) -> list[dict]:
-    if not text:
+def _generate_quiz_locally(
+    text: str,
+    count: int = 5,
+    exclude_questions: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    if not text or count <= 0:
         return []
 
-    random.seed(42)
-    clean = _clean_text(text)
-    sentences = [s for s in _split_sentences(clean) if _sentence_filter(s)]
-    if not sentences:
+    candidates = _candidate_statements(text)
+    if not candidates:
         return []
 
-    global_terms = _extract_key_phrases(clean, top_n=40)
-    questions = []
+    exclusions = exclude_questions or []
+    questions: list[dict[str, Any]] = []
+    seen_concepts: set[str] = set()
 
-    for sentence in sentences:
+    for candidate in candidates:
         if len(questions) >= count:
             break
 
-        candidates = _extract_candidates(sentence)
-        local_terms = [t for t in candidates if len(t.split()) <= 4]
-        if not local_terms:
-            local_terms = _extract_key_phrases(sentence, top_n=3)
+        concept = candidate["concept"]
+        if concept.casefold() in seen_concepts:
+            continue
+        seen_concepts.add(concept.casefold())
 
-        correct, question_text = _choose_blank(sentence, local_terms)
-        if not correct:
+        question_text = _make_question(concept, candidate["statement"])
+        normalized_question = re.sub(r"\W+", " ", question_text.casefold()).strip()
+        if any(
+            normalized_question == re.sub(r"\W+", " ", previous.casefold()).strip()
+            or is_similar_question(question_text, previous, threshold=0.9)
+            for previous in exclusions
+        ):
             continue
 
-        distractors = _generate_distractors(correct, [t for t in global_terms if t.lower() != correct.lower()], count=3)
-        if len(distractors) < 3:
-            continue
-
-        options = distractors + [correct]
-        random.shuffle(options)
-        difficulty = (
-            "hard" if len(sentence.split()) > 20 else
-            "medium" if len(sentence.split()) > 14 else
-            "easy"
-        )
-
-        if len(set(options)) != 4:
+        correct = candidate["statement"]
+        options = _build_options(candidate, candidates)
+        if len(options) < 4:
             continue
 
         questions.append({
             "question": question_text,
             "options": options,
             "correct": correct,
-            "difficulty": difficulty,
+            "correct_answer": correct,
+            "explanation": f"The document states: {correct}",
+            "difficulty": "easy" if len(correct.split()) < 18 else "medium",
+            "topic": concept,
+            "source_chunk_ids": [],
         })
 
     return questions

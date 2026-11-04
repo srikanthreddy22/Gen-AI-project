@@ -1,7 +1,10 @@
 import uuid
 import logging
 from flask import Blueprint, request, jsonify
-from ..demo_mode import demo_mode_enabled
+from ..services.generation_service import rag_generate_quiz_from_doc
+from ..services.openai_service import is_insufficient_quota
+from ..services.vector_store import get_document_chunks
+from ..services.quiz_gen import _generate_quiz_locally
 
 bp = Blueprint("quiz", __name__)
 logger = logging.getLogger(__name__)
@@ -36,35 +39,12 @@ def quiz_route():
         logger.error("[RAG] ERROR: No document ID provided")
         return jsonify({"error": "No document ID provided. Please upload a document first."}), 400
 
-    if demo_mode_enabled():
-        from ..services.demo_service import has_document, materials_for_document
-
-        if not has_document(doc_id):
-            return jsonify({"error": "Demo document not found. Please upload the PDF again."}), 404
-        materials = materials_for_document(doc_id, regenerate=True)
-        questions = materials["questions"]
-        return jsonify({
-            "questions": questions,
-            "count": len(questions),
-            "doc_id": doc_id,
-            "generation_id": generation_id,
-            "generation_method": "demo-static",
-            "insufficient_material": False,
-            "message": "The predefined demo questions have been reordered.",
-            "success": True,
-        })
-
     # Combine with server-side document history
     server_history = DOC_QUIZ_HISTORY.setdefault(doc_id, set())
     combined_exclusions = list(set(clean_exclusions).union(server_history))
     logger.info(f"[RAG] Total combined exclusions: {len(combined_exclusions)}")
     
     try:
-        from ..services.generation_service import rag_generate_quiz_from_doc
-        from ..services.openai_service import is_insufficient_quota
-        from ..services.vector_store import get_document_chunks
-        from ..services.quiz_gen import _generate_quiz_locally
-
         generation_method = "rag+llm"
         try:
             res = rag_generate_quiz_from_doc(

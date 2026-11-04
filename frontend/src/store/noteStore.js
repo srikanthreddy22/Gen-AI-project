@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import DEMO_QUESTIONS from '../data/demoQuestions.js'
+import { selectSampleQuizQuestions } from '../utils/quizValidation.js'
 
 const DEMO = {
   bullets:[
@@ -19,19 +21,13 @@ const DEMO = {
     {id:5,question:"What is fine-tuning in NLP?",answer:"Adapting a pre-trained language model on a smaller, domain-specific dataset to improve task-specific performance without training from scratch.",type:"definition"},
     {id:6,question:"What is tokenization in NLP?",answer:"The process of splitting raw text into individual units (tokens) such as words, subwords, or characters as the first preprocessing step.",type:"definition"},
   ],
-  quizQuestions:[
-    {id:1,question:"What does TF-IDF stand for and what is it primarily used for?",options:["Token Frequency — Inverse Document Flow","Term Frequency — Inverse Document Frequency","Text Feature — Indexed Data Format","Token Field — Integrated Data Fusion"],correct:"Term Frequency — Inverse Document Frequency",difficulty:"medium"},
-    {id:2,question:"Which evaluation metric is most commonly used for text summarization systems?",options:["BLEU","ROUGE","F1-Score","Perplexity"],correct:"ROUGE",difficulty:"easy"},
-    {id:3,question:"What core architecture does BERT use as its foundation?",options:["Recurrent Neural Network","LSTM","Transformer","Convolutional Neural Network"],correct:"Transformer",difficulty:"easy"},
-    {id:4,question:"What distinguishes abstractive summarization from extractive summarization?",options:["It is faster","It generates new sentences rather than selecting existing ones","It uses less memory","It only works on short texts"],correct:"It generates new sentences rather than selecting existing ones",difficulty:"medium"},
-    {id:5,question:"What is the primary advantage of self-attention over traditional RNN-based sequence modeling?",options:["Less computation","Parallel processing of all positions without sequential dependency","Smaller model size","Works only on short inputs"],correct:"Parallel processing of all positions without sequential dependency",difficulty:"hard"},
-  ]
 }
 
 export const useNoteStore = create((set,get) => ({
   inputText:'', uploadedFile:null, documentId:null, documentTitle:'', isProcessing:false,
   activeTab:'text', activeView:'summarize',
-  result:null, flashcards:[], quizQuestions:[], quizHistory:[],
+  result:null, flashcards:[], quizQuestions:[], quizHistory:[], quizMessage:'',
+  quizMode:null, sampleQuizUsedIds:[],
   currentFlashcard:0, flashcardFlipped:false,
   quizOpen:false, quizAnswer:null,
   preloaderDone:false,
@@ -40,15 +36,25 @@ export const useNoteStore = create((set,get) => ({
 
   setInputText:(t)=>set({inputText:t}),
   setUploadedFile:(f)=>set({uploadedFile:f}),
-  setDocumentId:(id)=>set(s=>({documentId:id, ...(s.documentId !== id ? {quizHistory:[]} : {})})),
+  setDocumentId:(id)=>set(s=>({documentId:id, ...(s.documentId !== id ? {quizHistory:[],quizMessage:''} : {})})),
   setDocumentTitle:(t)=>set({documentTitle:t}),
   setProcessing:(v)=>set({isProcessing:v}),
   setActiveTab:(t)=>set({activeTab:t}),
-  setActiveView:(v)=>set({activeView:v}),
+  setActiveView:(view)=>{
+    if (view === get().activeView) return
+    if (typeof window !== 'undefined') {
+      const route = view === 'flashcards' ? '/flashcards' : view === 'quiz' ? '/knowledge' : '/'
+      window.history.pushState({ ...window.history.state, notebotView: view }, '', route)
+    }
+    set({activeView:view})
+  },
   setResult:(r)=>set({result:r}),
-  setFlashcards:(f)=>set({flashcards:f}),
-  setQuizQuestions:(q)=>set(s=>({
+  setFlashcards:(f)=>set({flashcards:f,currentFlashcard:0,flashcardFlipped:false}),
+  setQuizMessage:(message)=>set({quizMessage:message || ''}),
+  setQuizQuestions:(q, mode='pdf')=>set(s=>({
     quizQuestions:q,
+    quizMode:mode,
+    ...(Array.isArray(q) && q.length > 0 ? {quizMessage:''} : {}),
     quizHistory: Array.from(new Set([
       ...(s.quizHistory || []),
       ...(Array.isArray(q) ? q.map(item => typeof item === 'string' ? item : item?.question).filter(Boolean) : [])
@@ -64,7 +70,26 @@ export const useNoteStore = create((set,get) => ({
   setQuizOpen:(v)=>set({quizOpen:v,quizAnswer:null}),
   setQuizAnswer:(a)=>set({quizAnswer:a}),
   toggleOption:(k)=>set(s=>({options:{...s.options,[k]:!s.options[k]}})),
-  reset:()=>set({inputText:'',uploadedFile:null,documentId:null,documentTitle:'',result:null,flashcards:[],quizQuestions:[],quizHistory:[],currentFlashcard:0,flashcardFlipped:false}),
-  loadDemo:()=>set({result:{bullets:DEMO.bullets,keywords:DEMO.keywords,stats:DEMO.stats},flashcards:DEMO.flashcards,quizQuestions:DEMO.quizQuestions,quizHistory:DEMO.quizQuestions.map(q=>q.question)}),
-  getDemoQuestions:()=>DEMO.quizQuestions,
+  reset:()=>set({inputText:'',uploadedFile:null,documentId:null,documentTitle:'',result:null,flashcards:[],quizQuestions:[],quizHistory:[],quizMessage:'',quizMode:null,sampleQuizUsedIds:[],currentFlashcard:0,flashcardFlipped:false}),
+  startSampleQuiz:()=>{
+    const state=get()
+    const usedIds=state.quizMode === 'sample' ? state.sampleQuizUsedIds : []
+    const previousIds=state.quizMode === 'sample' ? state.quizQuestions.map(question=>question.id) : []
+    const remaining=DEMO_QUESTIONS.filter(question=>!usedIds.includes(question.id))
+    const questions=selectSampleQuizQuestions(DEMO_QUESTIONS,{count:5,usedIds,previousIds})
+    const cycleUsedIds=remaining.length < 5
+      ? questions.map(question=>question.id)
+      : [...usedIds,...questions.map(question=>question.id)]
+    set({
+      result:{bullets:DEMO.bullets,keywords:DEMO.keywords,stats:DEMO.stats},
+      flashcards:DEMO.flashcards,
+      quizQuestions:questions,
+      quizHistory:questions.map(question=>question.question),
+      quizMessage:'',
+      quizMode:'sample',
+      sampleQuizUsedIds:cycleUsedIds,
+    })
+  },
+  loadDemo:()=>get().startSampleQuiz(),
+  getDemoQuestions:()=>DEMO_QUESTIONS,
 }))

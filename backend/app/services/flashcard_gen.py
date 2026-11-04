@@ -5,15 +5,53 @@ from .validation_service import validate_flashcards
 
 
 def _clean_text(text: str) -> str:
-    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
     return " ".join(lines)
 
 
 def _sentences(text: str) -> List[str]:
     cleaned = _clean_text(text)
-    # Split on sentence boundaries
     raw = re.split(r"(?<=[.!?])\s+", cleaned)
-    return [s.strip() for s in raw if len(s.split()) >= 6 and len(s) >= 30]
+    sentences: List[str] = []
+    for sentence in raw:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        if sentence[-1] not in ".!?":
+            sentence += "."
+        if len(sentence.split()) >= 6 and len(sentence) >= 20:
+            sentences.append(sentence)
+    return sentences
+
+
+def _extract_term_question_answer(sentence: str) -> tuple[str, str] | None:
+    text = sentence.strip()
+    patterns = [
+        r"^(?P<term>[A-Z][A-Za-z0-9\- ]{2,80}?)\s+(?:is|are|was|were|refers to|means|represents|describes|defines|includes|comprises)\s+(?P<detail>.+)$",
+        r"^(?P<term>[A-Z][A-Za-z0-9\- ]{2,80}?)\s+(?:uses|helps|enables|supports|requires|involves|provides|allows|extracts|reuses|propagates|adjusts)\s+(?P<detail>.+)$",
+    ]
+
+    for pattern in patterns:
+        match = re.match(pattern, text, re.IGNORECASE)
+        if match:
+            term = re.sub(r"^(?:a|an|the)\s+", "", match.group("term").strip(), flags=re.IGNORECASE)
+            detail = match.group("detail").strip()
+            if len(term.split()) <= 6 and len(detail.split()) >= 5:
+                question = f"What is {term}?"
+                if " uses " in text.casefold() or " helps " in text.casefold() or " enables " in text.casefold():
+                    question = f"How does {term} work?"
+                if " differ " in text.casefold() or " comparison " in text.casefold():
+                    question = f"How does {term} differ from related concepts?"
+                return question, text
+
+    if ":" in text:
+        prefix, suffix = text.rsplit(":", 1)
+        if len(prefix.split()) <= 8 and len(suffix.split()) >= 5:
+            term = prefix.strip().rstrip(".-")
+            if term:
+                return f"What is the key idea of {term}?", text
+
+    return None
 
 
 def _legacy_generate_flashcards(text: str, count: int = 8) -> List[Dict[str, Any]]:
@@ -23,72 +61,41 @@ def _legacy_generate_flashcards(text: str, count: int = 8) -> List[Dict[str, Any
         return []
 
     raw_candidates = []
-    seen_terms = set()
+    seen_keys = set()
+    for sentence in sents:
+        candidate = _extract_term_question_answer(sentence)
+        if not candidate:
+            continue
+        question, answer = candidate
+        key = re.sub(r"\W+", " ", question.casefold()).strip()
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        raw_candidates.append({
+            "id": len(raw_candidates) + 1,
+            "question": question,
+            "answer": answer,
+            "type": "concept",
+            "topic": question.replace("What is ", "").replace("How does ", "").replace("What is the key idea of ", "").replace("?", "").strip(),
+        })
+        if len(raw_candidates) >= count:
+            break
 
-    # Pattern 1: Definitions ("X is defined as Y", "X refers to Y", "X is a Y that...")
-    def_pattern = re.compile(
-        r"^([A-Z][A-Za-z0-9\s\-]{2,35}?)\s+(?:is defined as|refers to|is an?|are|was|represents|describes)\s+(.+)",
-        re.IGNORECASE
-    )
-    
-    # Pattern 2: Function / Process ("X enables Y", "X provides Y", "X functions by Y")
-    proc_pattern = re.compile(
-        r"^([A-Z][A-Za-z0-9\s\-]{2,35}?)\s+(?:enables|allows|functions by|works by|provides|serves to|operates by)\s+(.+)",
-        re.IGNORECASE
-    )
-
-    for i, s in enumerate(sents):
-        s_clean = s.strip()
-        m_def = def_pattern.match(s_clean)
-        m_proc = proc_pattern.match(s_clean)
-        
-        if m_def:
-            term = m_def.group(1).strip()
-            rest = m_def.group(2).strip()
-            if len(term.split()) <= 5 and term.lower() not in seen_terms and len(term) >= 3:
-                seen_terms.add(term.lower())
-                # Formulate a complete, meaningful answer
-                answer = s_clean if s_clean.endswith(".") else s_clean + "."
-                raw_candidates.append({
-                    "id": len(raw_candidates) + 1,
-                    "question": f"What is {term}?",
-                    "answer": answer,
-                    "type": "definition",
-                    "topic": term,
-                })
-        elif m_proc:
-            term = m_proc.group(1).strip()
-            rest = m_proc.group(2).strip()
-            if len(term.split()) <= 5 and term.lower() not in seen_terms and len(term) >= 3:
-                seen_terms.add(term.lower())
-                answer = s_clean if s_clean.endswith(".") else s_clean + "."
-                raw_candidates.append({
-                    "id": len(raw_candidates) + 1,
-                    "question": f"How does {term} function?",
-                    "answer": answer,
-                    "type": "process",
-                    "topic": term,
-                })
-
-    # If we need more candidates, extract key capitalized terms
     if len(raw_candidates) < count:
-        for s in sents:
-            if len(raw_candidates) >= count * 2:
-                break
-            # Find subject term
-            words = s.split()
-            first_caps = [w.strip(".,;:()") for w in words[:4] if w and w[0].isupper() and len(w) >= 4]
-            if first_caps:
-                term = first_caps[0]
-                if term.lower() not in seen_terms and term.lower() not in {"this", "these", "there", "their", "however", "although", "furthermore", "moreover"}:
-                    seen_terms.add(term.lower())
-                    raw_candidates.append({
-                        "id": len(raw_candidates) + 1,
-                        "question": f"Explain the key concept of {term}.",
-                        "answer": s.strip(),
-                        "type": "concept",
-                        "topic": term,
-                    })
+        for sentence in sents:
+            term_match = re.search(r"([A-Z][A-Za-z0-9\- ]{3,40})\s+(?:is|are|uses|helps|enables|refers to|means|represents)", sentence)
+            if term_match and len(raw_candidates) < count:
+                term = term_match.group(1).strip()
+                key = term.casefold()
+                if key in {candidate["topic"].casefold() for candidate in raw_candidates}:
+                    continue
+                raw_candidates.append({
+                    "id": len(raw_candidates) + 1,
+                    "question": f"What is the role of {term}?",
+                    "answer": sentence.strip(),
+                    "type": "concept",
+                    "topic": term,
+                })
 
     return validate_flashcards({"flashcards": raw_candidates}, count=count)
 

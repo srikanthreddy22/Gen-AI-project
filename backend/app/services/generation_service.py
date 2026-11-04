@@ -90,31 +90,33 @@ def rag_generate_flashcards_from_doc(doc_id: str, count: int = 8) -> List[Dict[s
     logger.info(f"[RAG] Built context from {len(chunks)} chunks ({len(context)} chars)")
     
     system_prompt = (
-        "You are an expert educational content creator specialized in high-yield study flashcards for exam preparation. "
-        "Your goal is to help students truly understand concepts and prepare for exams using ONLY the provided document context. "
+        "You are an expert university-level study designer specializing in high-yield exam preparation. "
+        "Your job is to transform the supplied document passages into concise, accurate, concept-driven learning materials. "
+        "Every fact must be supported by the provided context; do not invent details, examples, or broader claims. "
         "Return ONLY valid JSON with a top-level 'flashcards' list."
     )
     
-    user_prompt = f"""Generate {count} high-quality, meaningful study flashcards based strictly on the provided document passages.
+    user_prompt = f"""Generate {count} university-style study flashcards from the document passages below.
 
 DOCUMENT CONTEXT:
 {context}
 
 FLASHCARD QUALITY CRITERIA:
 1. FRONT (Question):
-   - Must be a clear, grammatically correct, standalone question testing an important concept.
-   - Good examples: "What is [Concept]?", "How does [A] differ from [B]?", "What is the primary function of [X]?", "Why does [Process] occur?", "What are the main steps in [Mechanism]?"
-   - NEVER generate vague questions like "What is the branch of AI?", "What about data?", or questions with sentence fragments.
+   - Must be a polished, standalone exam question that tests a significant concept, mechanism, definition, comparison, or effect.
+   - Prefer high-value question types such as: "What is [Concept]?", "How does [Process] work?", "Why does [Outcome] occur?", "How does [A] differ from [B]?", "What is the primary function of [X]?"
+   - Avoid vague, generic, or fragmentary prompts such as "What is this?", "What about data?", or broad questions lacking a clear concept.
 2. BACK (Answer):
-   - Must directly, accurately, and completely answer the question based strictly on the text.
-   - Must be concise (1 to 3 clear sentences) and self-contained so that it makes sense without reading the whole document.
-   - NEVER return raw sentence snippets, dangling clauses, or answers unrelated to the question.
+   - Must give a precise, academically appropriate answer supported directly by the source text.
+   - Keep each answer to 1-3 clear sentences and self-contained enough that a student can revise without re-reading the whole passage.
+   - Do not return incomplete clauses, paraphrases that distort the meaning, or unsupported speculation.
 3. CONTENT COVERAGE:
-   - Cover definitions, core concepts, processes/mechanisms, comparisons, causes/effects, and practical applications.
-   - Avoid trivial formatting artifacts (page numbers, headers, references).
-   - Each card must test a UNIQUE concept—do not generate multiple cards testing the same fact.
+   - Cover definitions, core ideas, cause-effect relationships, comparisons, mechanisms, and applications when explicitly supported by the text.
+   - Each card should cover a distinct concept; avoid duplication or near-identical cards on the same fact.
+   - Remove headers, page numbers, references, and irrelevant formatting artifacts.
 4. GROUNDING:
-   - Base all answers strictly on the provided context. Do NOT invent information.
+   - Use only the supplied document. If a concept is not in the passage, do not generate it.
+   - Prefer accurate, clearly-written questions over forcing quantity.
 
 JSON SCHEMA:
 {{
@@ -203,25 +205,32 @@ def rag_generate_quiz_from_doc(
         )
 
     system_prompt = (
-        "You are an expert assessment designer creating multiple-choice questions for student exam preparation. "
-        "Each question must have exactly 4 plausible, distinct options with exactly one unequivocally correct option. "
-        "Base all questions strictly on the provided context. Return ONLY valid JSON with a top-level 'questions' list."
+        "You are an expert university assessment designer creating high-quality exam questions from a supplied study document. "
+        "Generate only questions that are directly supported by the source passages. Keep the wording academically precise, "
+        "concept-focused, and varied across definitions, mechanisms, comparisons, and causal relationships. "
+        "Never invent facts, use fill-in-the-blank stems, or create questions that copy a sentence fragment from the document. "
+        "CRITICAL: each question must have its own distinct, context-specific distractor set. Never reuse the same three incorrect options across different questions; every incorrect option should be tailored to its specific question and semantically different. "
+        "Return ONLY valid JSON with a top-level 'questions' list."
     )
 
-    user_prompt = f"""Generate {count} multiple-choice exam questions from the provided document passages.
+    user_prompt = f"""Generate up to {count} university-level multiple-choice exam questions from the provided document passages.
 
 DOCUMENT CONTEXT:
 {context}
 {exclusion_text}
 
-QUESTION REQUIREMENTS:
-1. Question: Clear, specific, grammatically correct question testing an important fact, concept, or relationship.
-2. Options: Exactly 4 distinct, plausible options (strings). Avoid "All of the above" or "None of the above".
-3. Correct Answer: Must match one of the 4 options verbatim.
-4. Explanation: A concise explanation (1-2 sentences) explaining why the answer is correct according to the context.
-5. Difficulty: 'easy', 'medium', or 'hard'.
-6. Diversity: Ensure all 4 options are distinct strings and test different aspects of the material.
-7. Strict Grounding: Every correct answer and option must be verifiable from the context.
+QUESTION DESIGN REQUIREMENTS:
+1. Choose meaningful, exam-relevant concepts, definitions, relationships, mechanisms, comparisons, causes, or consequences that are explicitly supported by the passages.
+2. Use polished, natural question stems. Strong forms include: "What is [concept]?", "Which statement best describes [concept]?", "How does [process] work?", "Why does [effect] occur?", and "How does [A] differ from [B]?"
+3. Never create fill-in-the-blank questions, sentence fragments, or questions that simply repeat a passage verbatim.
+4. The correct answer must be explicitly supported by the document and must match one option exactly.
+6. Provide exactly 4 plausible answer choices whenever the passage supports enough high-quality distractors. If not enough unique distractors exist, skip the question instead of reusing generic filler options.
+7. Ensure there is exactly one defensible correct answer. Distractors should be contextually relevant to that question, clearly wrong or less complete, and not reused from other questions.
+7. Explanation should be brief but academically grounded: 1 to 2 sentences that directly connect the answer to the document evidence.
+8. Difficulty should be 'easy', 'medium', or 'hard' depending on conceptual complexity.
+9. Exclude page numbers, headers, footers, or isolated fragments. Prefer fewer strong questions over weak or unsupported ones.
+11. For each question, independently generate three distinct plausible wrong answers that are designed for that question only. Never use a shared distractor pool across the entire quiz.
+10. If the document contains only a few distinct ideas, generate fewer than the maximum; do not force low-quality questions.
 
 JSON SCHEMA:
 {{
@@ -261,7 +270,7 @@ JSON SCHEMA:
         if m:
             parsed = json.loads(m.group(0))
 
-    questions = validate_quiz(parsed, exclude_questions=exclusions, count=count)
+    questions = validate_quiz(parsed, exclude_questions=exclusions, count=count, source_text=context)
     logger.info(f"[RAG] Quiz questions validated: {len(questions)}/{count} questions accepted (exclusions filtered)")
     
     # If duplicates were rejected and we didn't get enough questions, retry once with targeted prompt
@@ -290,7 +299,12 @@ Return valid JSON with top-level 'questions' matching the schema."""
             )
             supp_text = supp_resp["choices"][0]["message"]["content"]
             supp_parsed = json.loads(supp_text)
-            supp_questions = validate_quiz(supp_parsed, exclude_questions=all_exclusions, count=needed)
+            supp_questions = validate_quiz(
+                supp_parsed,
+                exclude_questions=all_exclusions,
+                count=needed,
+                source_text=context,
+            )
             for sq in supp_questions:
                 sq["id"] = len(questions) + 1
                 questions.append(sq)

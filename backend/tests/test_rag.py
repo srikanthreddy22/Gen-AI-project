@@ -62,7 +62,6 @@ def test_document_chunking_and_indexing(monkeypatch):
     text = open(SAMPLE_PATH, 'r', encoding='utf-8').read()
     # patch embeddings (patch both modules that reference it)
     monkeypatch.setattr(rag_service, 'get_embeddings', lambda texts, model=None: _fake_embedding(texts))
-    monkeypatch.setattr(generation_service, 'get_embeddings', lambda texts, model=None: _fake_embedding(texts))
 
     doc_id = rag_service.process_document(text, doc_name='sample')
     chunks = vector_store.get_document_chunks(doc_id)
@@ -168,7 +167,6 @@ def test_topic_grouping_and_diversity(monkeypatch):
         return _fake_embedding(texts)
 
     monkeypatch.setattr(rag_service, 'get_embeddings', fake_get_embeddings)
-    monkeypatch.setattr(generation_service, 'get_embeddings', fake_get_embeddings)
     # relax grouping threshold for this test so our deterministic embeddings produce multiple groups
     monkeypatch.setattr(rag_service, '_assign_topic_groups', lambda chunks: rag_service._assign_topic_groups_orig(chunks, threshold=0.35))
 
@@ -193,7 +191,6 @@ def test_redundancy_removal(monkeypatch):
     # create a document with repeated paragraphs
     repeated = 'Topic X\n\nThis is repeated.\n\n' * 10
     monkeypatch.setattr(rag_service, 'get_embeddings', lambda texts, model=None: _fake_embedding(texts))
-    monkeypatch.setattr(generation_service, 'get_embeddings', lambda texts, model=None: _fake_embedding(texts))
     doc_id = rag_service.process_document(repeated, doc_name='repeated')
     selected = rag_service.retrieve_relevant(doc_id, 'repeated', top_k=5, candidate_k=20)
     # ensure duplicates removed
@@ -206,10 +203,9 @@ def test_generation_pipeline_with_mocked_openai(monkeypatch):
     text = open(SAMPLE_PATH, 'r', encoding='utf-8').read()
     # patch embeddings for generation pipeline
     monkeypatch.setattr(rag_service, 'get_embeddings', lambda texts, model=None: _fake_embedding(texts))
-    monkeypatch.setattr(generation_service, 'get_embeddings', lambda texts, model=None: _fake_embedding(texts))
 
     # Mock chat_completion to return JSON with duplicates and check validation filters
-    def fake_chat(messages, model=None, temperature=0.0, max_tokens=None):
+    def fake_chat(messages, model=None, temperature=0.0, max_tokens=None, **kwargs):
         # return duplicate flashcards and malformed extra fields
         resp = {
             'choices': [
@@ -233,7 +229,7 @@ def test_generation_pipeline_with_mocked_openai(monkeypatch):
     assert len(qs) == len(set(qs))
 
     # Now test quiz generation with proper structure
-    def fake_chat_quiz(messages, model=None, temperature=0.0, max_tokens=None):
+    def fake_chat_quiz(messages, model=None, temperature=0.0, max_tokens=None, **kwargs):
         return {
             'choices': [
                 {'message': {
@@ -241,9 +237,14 @@ def test_generation_pipeline_with_mocked_openai(monkeypatch):
                         'questions': [
                             {
                                 'id': 'q1',
-                                'question': 'What is a neural network?',
-                                'options': ['A set of layers', 'A pizza', 'A car', 'An animal'],
-                                'correct_answer': 'A set of layers',
+                                'question': 'Which statement describes neural networks?',
+                                'options': [
+                                    'Neural networks are composed of layers of neurons, activation functions, and optimization algorithms such as gradient descent.',
+                                    'Machine learning is a field that studies algorithms that learn from data.',
+                                    'NLP studies language understanding, tokenization, embeddings, and sequence models.',
+                                    'Computer vision focuses on image processing, convolutional neural networks, and object detection.',
+                                ],
+                                'correct_answer': 'Neural networks are composed of layers of neurons, activation functions, and optimization algorithms such as gradient descent.',
                                 'explanation': 'Supported by the context',
                                 'source_chunk_ids': ['c2'],
                                 'topic': 'Neural Networks'

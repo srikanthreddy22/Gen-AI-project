@@ -1,7 +1,23 @@
 import axios from 'axios'
-const api = axios.create({baseURL:'http://127.0.0.1:5000/api',timeout:60000})
+const configuredApiUrl = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/+$/, '')
+const apiBaseUrl = configuredApiUrl
+  ? (/\/api$/i.test(configuredApiUrl) ? configuredApiUrl : `${configuredApiUrl}/api`)
+  : '/api'
+const api = axios.create({
+  baseURL: apiBaseUrl,
+  timeout: 60000,
+})
 export const summarizeText = (text,opts={}) => api.post('/summarize/',{text,method:'auto',bullet_count:opts.bulletCount||6})
-export const uploadPDF = (file) => { const f=new FormData();f.append('file',file);return api.post('/upload/',f,{headers:{'Content-Type':'multipart/form-data'}}) }
+export const uploadPDF = (file, onProgress) => {
+  const f = new FormData()
+  f.append('file', file)
+  return api.post('/upload/', f, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: (event) => {
+      if (event.total) onProgress?.(Math.round((event.loaded / event.total) * 100))
+    },
+  })
+}
 export const indexText = (text, docName='pasted-text') => api.post('/upload/text/',{text,doc_name:docName})
 export const uploadFile = (file, onProgress) => {
   const f=new FormData()

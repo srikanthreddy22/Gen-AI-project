@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-const DWELL_TIME = 14000
+const DWELL_TIME = 5000
 const CROSSFADE_TIME = 1800
+const WAIT_AFTER_CROSSFADE = DWELL_TIME - CROSSFADE_TIME
 const CROSSFADE_EASE = 'cubic-bezier(0.4, 0, 0.2, 1)'
 
 function shuffled(items) {
@@ -14,7 +15,6 @@ function shuffled(items) {
 }
 
 export default function SceneBackdrop() {
-  const [scenes, setScenes] = useState([])
   const [layers, setLayers] = useState([null, null])
   const [activeScene, setActiveScene] = useState(null)
   const [incomingScene, setIncomingScene] = useState(null)
@@ -22,7 +22,7 @@ export default function SceneBackdrop() {
   const [incomingSlot, setIncomingSlot] = useState(null)
   const [reducedMotion, setReducedMotion] = useState(false)
   const [documentHidden, setDocumentHidden] = useState(false)
-  const [indicatorHovered, setIndicatorHovered] = useState(false)
+  const [hoverPaused, setHoverPaused] = useState(false)
 
   const mountedRef = useRef(false)
   const orderRef = useRef([])
@@ -61,7 +61,7 @@ export default function SceneBackdrop() {
   }, [])
 
   const showScene = useCallback(async (scene, initial = false) => {
-    if (!scene || scene.id === activeRef.current?.id || transitioningRef.current) return false
+    if (!scene || scene.id === activeRef.current?.id) return false
 
     const loadedScene = await preload(scene)
     if (!mountedRef.current || !loadedScene) return false
@@ -83,7 +83,7 @@ export default function SceneBackdrop() {
         setActiveScene(loadedScene)
         setIncomingScene(null)
         setIncomingSlot(null)
-      }, reducedMotionRef.current ? 600 : CROSSFADE_TIME)
+      }, reducedMotionRef.current ? 0 : CROSSFADE_TIME)
     } else {
       const nextSlot = activeSlotRef.current === 0 ? 1 : 0
       setLayers((currentLayers) => {
@@ -105,7 +105,7 @@ export default function SceneBackdrop() {
         setActiveSlot(nextSlot)
         setIncomingScene(null)
         setIncomingSlot(null)
-      }, reducedMotionRef.current ? 600 : CROSSFADE_TIME)
+      }, reducedMotionRef.current ? 0 : CROSSFADE_TIME)
     }
 
     return true
@@ -176,6 +176,25 @@ export default function SceneBackdrop() {
   }, [])
 
   useEffect(() => {
+    const isHoverTarget = (target) => target instanceof Element && Boolean(
+      target.closest('button, a, input, textarea, select, [role="button"], .surface, .glass-panel, .glass-card, .glass-raised'),
+    )
+    const handlePointerOver = (event) => {
+      if (isHoverTarget(event.target)) setHoverPaused(true)
+    }
+    const handlePointerOut = (event) => {
+      if (isHoverTarget(event.target) && !isHoverTarget(event.relatedTarget)) setHoverPaused(false)
+    }
+
+    document.addEventListener('pointerover', handlePointerOver)
+    document.addEventListener('pointerout', handlePointerOut)
+    return () => {
+      document.removeEventListener('pointerover', handlePointerOver)
+      document.removeEventListener('pointerout', handlePointerOut)
+    }
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
 
     const loadManifest = async () => {
@@ -187,14 +206,12 @@ export default function SceneBackdrop() {
           throw new Error('The scene manifest contains no scenes.')
         }
 
-        const orderedScenes = manifest.scenes[0]?.id === 'study-desk'
-          ? [manifest.scenes[0], ...shuffled(manifest.scenes.slice(1))]
-          : shuffled(manifest.scenes)
+        const prefersReducedMotion = typeof window.matchMedia === 'function'
+          && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        const orderedScenes = prefersReducedMotion ? manifest.scenes : shuffled(manifest.scenes)
         if (cancelled) return
 
         orderRef.current = orderedScenes
-        setScenes(manifest.scenes)
-
         for (const scene of orderedScenes) {
           if (await showScene(scene, true)) return
           if (cancelled) return
@@ -208,27 +225,17 @@ export default function SceneBackdrop() {
     return () => {
       cancelled = true
     }
-  }, [showScene])
+  }, [reducedMotion, showScene])
 
   useEffect(() => {
-    if (!activeScene || reducedMotion || documentHidden || indicatorHovered) return undefined
+    if (!activeScene || reducedMotion || documentHidden || hoverPaused) return undefined
 
     const nextScene = nextSceneFrom(activeScene)
     if (nextScene) preload(nextScene)
 
-    const timer = setTimeout(() => advance(activeScene), DWELL_TIME)
+    const timer = setTimeout(() => advance(activeScene), WAIT_AFTER_CROSSFADE)
     return () => clearTimeout(timer)
-  }, [activeScene, advance, documentHidden, indicatorHovered, nextSceneFrom, preload, reducedMotion])
-
-  const jumpToScene = async (scene) => {
-    if (transitioningRef.current || scene.id === activeRef.current?.id) return
-    if (failedRef.current.has(scene.id)) {
-      await advance(scene)
-      return
-    }
-    const shown = await showScene(scene)
-    if (!shown && mountedRef.current) await advance(scene)
-  }
+  }, [activeScene, advance, documentHidden, hoverPaused, nextSceneFrom, preload, reducedMotion])
 
   const isVisible = (slot) => (
     (incomingScene && incomingSlot === slot) || (!incomingScene && activeScene && activeSlot === slot)
@@ -244,9 +251,9 @@ export default function SceneBackdrop() {
               key={`${slot}-${scene.id}`}
               style={{
                 opacity: isVisible(slot) ? 1 : 0,
-                transitionDuration: `${reducedMotion ? 600 : CROSSFADE_TIME}ms`,
+                transitionDuration: `${reducedMotion ? 0 : CROSSFADE_TIME}ms`,
                 transitionTimingFunction: CROSSFADE_EASE,
-                animationDuration: `${reducedMotion ? 600 : CROSSFADE_TIME}ms`,
+                animationDuration: `${reducedMotion ? 0 : CROSSFADE_TIME}ms`,
               }}
             >
               <img
@@ -254,51 +261,22 @@ export default function SceneBackdrop() {
                 src={scene.src}
                 alt=""
                 draggable="false"
-                style={{ objectPosition: scene.focal || '50% 50%' }}
+                style={{
+                  objectPosition: scene.focal || '50% 50%',
+                  filter: 'saturate(0.9) brightness(1.04)',
+                  animationDuration: `${DWELL_TIME}ms`,
+                }}
               />
             </div>
           ))}
         </div>
-        <div className="scene-colour-wash" />
-        <div className="scene-vignette" />
-        <svg className="scene-grain" aria-hidden="true">
-          <filter id="scene-paper-grain">
-            <feTurbulence
-              type="fractalNoise"
-              baseFrequency="0.8"
-              numOctaves="3"
-              stitchTiles="stitch"
-            />
-          </filter>
-          <rect width="100%" height="100%" filter="url(#scene-paper-grain)" />
-        </svg>
-      </div>
-
-      {scenes.length > 0 && (
-        <div
-          className="scene-indicator"
-          onMouseEnter={() => setIndicatorHovered(true)}
-          onMouseLeave={() => setIndicatorHovered(false)}
-          onFocus={() => setIndicatorHovered(true)}
-          onBlur={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget)) setIndicatorHovered(false)
-          }}
-        >
-          <span className="scene-label">{activeScene?.label || 'Study desk'}</span>
-          <div className="scene-ticks" role="group" aria-label="Background scenes">
-            {scenes.map((scene) => (
-              <button
-                key={scene.id}
-                type="button"
-                className={`scene-tick${activeScene?.id === scene.id ? ' is-active' : ''}`}
-                aria-label={scene.label}
-                aria-current={activeScene?.id === scene.id ? 'true' : undefined}
-                onClick={() => jumpToScene(scene)}
-              />
-            ))}
-          </div>
+        <div className="scene-warm-veil" />
+        <div className="scene-blobs">
+          <div className="scene-blob scene-blob-coral" />
+          <div className="scene-blob scene-blob-saffron" />
+          <div className="scene-blob scene-blob-teal" />
         </div>
-      )}
+      </div>
     </>
   )
 }

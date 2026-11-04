@@ -1,9 +1,10 @@
-import React, { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { CheckCircle2, XCircle, Trophy, RotateCcw, Sparkles, Loader2 } from 'lucide-react'
+import React, { useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { Check, Loader2, RotateCcw, Sparkles, Trophy, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useNoteStore } from '../store/noteStore'
 import { getQuiz } from '../utils/api'
+import AIProcessingIndicator from '../components/animations/AIProcessingIndicator'
 
 export default function QuizPage() {
   const store = useNoteStore()
@@ -12,237 +13,253 @@ export default function QuizPage() {
   const [score, setScore] = useState(0)
   const [done, setDone] = useState(false)
   const [isGeneratingNew, setIsGeneratingNew] = useState(false)
-  const questions = store.quizQuestions.length ? store.quizQuestions : []
-  const q = questions[current]
+  const generationInProgress = useRef(false)
+  const questions = store.quizQuestions
+  const question = questions[current]
+  const correctAnswer = question ? (question.correct || question.correct_answer) : null
+
+  useEffect(() => {
+    setCurrent(0)
+    setSelected(null)
+    setScore(0)
+    setDone(false)
+  }, [questions])
 
   if (!questions.length) {
+    const hasDocument = Boolean(store.documentId)
     return (
-      <div className="w-full h-full p-8 flex items-center justify-center text-zinc-300">
-        <div className="text-center max-w-lg">
-          <p className="text-2xl font-semibold mb-3">No quiz generated yet</p>
-          <p className="text-zinc-400">Upload a document and generate a quiz from the current uploaded content.</p>
+      <main className="quiz-page flex min-h-[70vh] flex-col items-center justify-center text-center">
+        <div className="surface w-full max-w-xl p-8">
+          <h1 className="m-0 text-3xl">
+            {hasDocument ? 'This document needs a little more detail.' : 'A quiz starts with your notes.'}
+          </h1>
+          <p className="page-description mx-auto">
+            {hasDocument
+              ? store.quizMessage || 'There is not enough clear information to create reliable quiz questions. Try a longer document with definitions or explanations.'
+              : 'Summarise a document first, and we’ll build a quiz from its key ideas.'}
+          </p>
+          <button type="button" className="btn-primary mt-5 px-5 py-2.5" onClick={() => store.setActiveView('summarize')}>
+            {hasDocument ? 'Back to Workspace' : 'Go to Workspace'}
+          </button>
         </div>
-      </div>
+      </main>
     )
   }
 
-  const correctAnswer = q ? (q.correct || q.correct_answer) : null
-
-  const pick = (opt) => {
+  const pick = (option) => {
     if (selected) return
-    setSelected(opt)
-    if (opt === correctAnswer) setScore(s => s+1)
+    setSelected(option)
+    if (option === correctAnswer) setScore((value) => value + 1)
   }
   const next = () => {
-    if (current+1 >= questions.length) { setDone(true); return }
-    setCurrent(i => i+1); setSelected(null)
+    if (current + 1 >= questions.length) {
+      setDone(true)
+      return
+    }
+    setCurrent((value) => value + 1)
+    setSelected(null)
   }
-  const restart = () => { setCurrent(0); setSelected(null); setScore(0); setDone(false) }
+  const restart = () => {
+    setCurrent(0)
+    setSelected(null)
+    setScore(0)
+    setDone(false)
+  }
 
   const handleGenerateNewQuestions = async () => {
-    if (!store.documentId) {
+    if (store.quizMode === 'sample') {
+      store.startSampleQuiz()
+      setCurrent(0)
+      setSelected(null)
+      setScore(0)
+      setDone(false)
+      toast.success('A fresh set of 5 sample questions is ready.')
+      return
+    }
+    if (generationInProgress.current) return
+    if (store.quizMode !== 'pdf' || !store.documentId) {
       toast.error('No active document found. Please upload a document first.')
       return
     }
 
+    generationInProgress.current = true
     setIsGeneratingNew(true)
-    const toastId = toast.loading('Regenerating questions...')
-
+    const toastId = toast.loading('Generating 5 new assessment questions…')
+    const documentId = store.documentId
     try {
-      // Collect previously asked question texts
       const exclusions = (store.quizHistory && store.quizHistory.length > 0)
         ? store.quizHistory
-        : questions.map(item => item?.question).filter(Boolean)
+        : questions.map((item) => item?.question).filter(Boolean)
+      const generationId = `gen_${Date.now()}`
+      const response = await getQuiz(documentId, 5, exclusions, generationId)
 
-      const genId = `gen_${Date.now()}`
-      const res = await getQuiz(store.documentId, 5, exclusions, genId)
+      const currentStore = useNoteStore.getState()
+      if (currentStore.quizMode !== 'pdf' || currentStore.documentId !== documentId) {
+        toast.dismiss(toastId)
+        return
+      }
 
-      if (res.data && res.data.questions && res.data.questions.length > 0) {
-        const newQuestions = res.data.questions
-        store.setQuizQuestions(newQuestions)
+      if (response.data?.questions?.length > 0) {
+        const newQuestions = response.data.questions
+        store.setQuizQuestions(newQuestions, 'pdf')
+        store.setQuizMessage(response.data.message || '')
         setCurrent(0)
         setSelected(null)
         setScore(0)
         setDone(false)
-
-        if (res.data.generation_method === 'demo-static') {
-          toast.success(res.data.message || 'Questions regenerated.', { id: toastId })
-        } else if (res.data.insufficient_material) {
+        if (response.data.insufficient_material) {
           toast.success(
-            `Generated ${newQuestions.length} new question(s). ${res.data.message || 'All distinct concepts covered.'}`,
+            `Generated ${newQuestions.length} new question(s). ${response.data.message || 'All distinct concepts covered.'}`,
             { id: toastId, duration: 4000 }
           )
         } else {
           toast.success(`Generated ${newQuestions.length} brand-new questions!`, { id: toastId })
         }
       } else {
-        toast.error('No new questions could be generated. All document concepts covered.', { id: toastId })
+        const message = response.data?.message || 'No new questions could be generated. All document concepts covered.'
+        store.setQuizMessage(message)
+        toast.error(message, { id: toastId })
       }
-    } catch (err) {
-      console.error('Failed to generate new quiz questions:', err)
-      const errorMsg = err?.response?.data?.error || err?.message || 'Failed to generate new questions.'
-      toast.error(`Quiz generation failed: ${errorMsg}`, { id: toastId })
+    } catch (error) {
+      console.error('Failed to generate new quiz questions:', error)
+      const errorMessage = error?.response?.data?.error || error?.message || 'Failed to generate new questions.'
+      toast.error(`Quiz generation failed: ${errorMessage}`, { id: toastId })
     } finally {
+      generationInProgress.current = false
       setIsGeneratingNew(false)
     }
   }
 
-  const pct = Math.round((score/questions.length)*100)
+  const percentage = Math.round((score / questions.length) * 100)
 
-  if (done) return (
-    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col items-center justify-center h-full gap-8 p-8 text-center relative">
-      <motion.div initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: 'spring', stiffness: 200, delay: 0.2 }}
-        className="w-28 h-28 rounded-[2rem] flex items-center justify-center bg-white/5 border border-white/10 backdrop-blur-xl shadow-[0_0_60px_rgba(139,92,246,0.15)] relative">
-        <Trophy size={48} className="text-violet-400" />
-      </motion.div>
-
-      <div>
-        <motion.h2 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-          className="text-5xl font-semibold tracking-tight text-zinc-100 mb-3 font-display">
-          Assessment <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-400 to-fuchsia-400">Complete</span>
-        </motion.h2>
-        <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.4, type: 'spring' }}
-          className="text-6xl font-bold font-mono mb-6 text-zinc-100">
-          {score} <span className="text-zinc-500 text-4xl">/ {questions.length}</span>
-        </motion.div>
-        <div className="w-64 h-2 rounded-full mx-auto mb-6 bg-white/10 overflow-hidden">
-          <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 1, delay: 0.5, ease: 'easeOut' }}
-            className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 shadow-[0_0_15px_rgba(139,92,246,0.5)]" />
+  if (done) {
+    return (
+      <motion.main
+        className="quiz-page flex min-h-[70vh] flex-col items-center justify-center text-center"
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.32 }}
+      >
+        <div className="mb-5 grid h-20 w-20 place-items-center rounded-[var(--radius-lg)]" style={{ background: 'var(--saffron)' }}>
+          <Trophy size={38} aria-hidden="true" />
         </div>
-        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }} className="text-lg text-zinc-400">
-          {pct===100 ? 'Flawless execution. You have mastered these concepts.' : pct>=60 ? 'Solid understanding. A quick review of the missed points will solidify your knowledge.' : 'Keep exploring the material. You are building the foundation.'}
-        </motion.p>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-center gap-4 mt-2">
-        <motion.button initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }}
-          whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.97 }}
-          onClick={restart}
-          className="flex items-center gap-2 px-6 py-3.5 rounded-2xl text-sm font-semibold text-zinc-300 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 backdrop-blur-md transition-all">
-          <RotateCcw size={18} /> Retry Assessment
-        </motion.button>
-
-        <motion.button initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.75 }}
-          whileHover={!isGeneratingNew ? { scale: 1.03, y: -2 } : {}} whileTap={!isGeneratingNew ? { scale: 0.97 } : {}}
-          disabled={isGeneratingNew}
-          onClick={handleGenerateNewQuestions}
-          className={`flex items-center gap-2 px-8 py-3.5 rounded-2xl text-sm font-semibold text-white shadow-[0_0_30px_rgba(139,92,246,0.3)] backdrop-blur-md transition-all ${
-            isGeneratingNew
-              ? 'bg-violet-600/50 border-violet-500/30 cursor-not-allowed opacity-80'
-              : 'bg-violet-600/80 hover:bg-violet-500 border border-violet-500/50 hover:shadow-[0_0_35px_rgba(139,92,246,0.5)]'
-          }`}>
-          {isGeneratingNew ? (
-            <>
-              <Loader2 size={18} className="animate-spin" />
-              <span>Regenerating...</span>
-            </>
-          ) : (
-            <>
-              <Sparkles size={18} />
-              <span>Regenerate Questions</span>
-            </>
-          )}
-        </motion.button>
-      </div>
-    </motion.div>
-  )
+        <p className="mb-2 font-semibold" style={{ color: 'var(--ink)' }}>You made it through the questions</p>
+        <h1 className="m-0 text-4xl">Your score</h1>
+        <p className="font-display m-0 mt-2 text-6xl">{score}<span className="text-3xl"> / {questions.length}</span></p>
+        <p className="mx-auto mt-3 max-w-xl leading-relaxed" style={{ color: 'var(--ink)' }}>
+          {percentage === 100
+            ? 'You have a strong handle on these ideas.'
+            : percentage >= 60
+              ? 'A quick review of a few missed points will help the ideas stick.'
+              : 'Keep exploring the material. You are building a foundation.'}
+        </p>
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <button type="button" className="btn-primary px-5 py-2.5" onClick={restart}>
+            <RotateCcw size={16} aria-hidden="true" /> Try again
+          </button>
+          <button type="button" className="btn-secondary px-5 py-2.5" onClick={() => store.setActiveView('summarize')}>
+            Back to report
+          </button>
+          <button type="button" className="btn-secondary px-5 py-2.5" onClick={handleGenerateNewQuestions} disabled={isGeneratingNew && store.quizMode === 'pdf'}>
+            {isGeneratingNew && store.quizMode === 'pdf' ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+            {isGeneratingNew && store.quizMode === 'pdf' ? 'Making new questions...' : 'New questions'}
+          </button>
+        </div>
+        {isGeneratingNew && store.quizMode === 'pdf' && <AIProcessingIndicator message="Generating new quiz questions" />}
+      </motion.main>
+    )
+  }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} transition={{ duration: 0.6 }}
-      className="flex flex-col items-center justify-start h-full p-8 pt-12 relative overflow-y-auto custom-scrollbar">
-
-      <div className="w-full max-w-3xl relative">
-        {/* Header */}
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-4">
-            <div className="text-sm font-mono text-zinc-400">
-              Question <span className="text-zinc-100 font-semibold">{current+1}</span> / {questions.length}
-            </div>
-            <div className="h-4 w-px bg-white/10" />
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${q.difficulty==='easy'?'bg-emerald-400':q.difficulty==='medium'?'bg-violet-400':'bg-fuchsia-400'} shadow-[0_0_10px_currentColor]`} />
-              <span className="text-xs font-medium capitalize text-zinc-300">{q.difficulty}</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 text-sm px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-zinc-300 backdrop-blur-md">
-            Score: <span className="font-bold text-violet-400 font-mono ml-1">{score}</span>
-          </div>
-          <button type="button" onClick={handleGenerateNewQuestions} disabled={isGeneratingNew}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-violet-600/80 hover:bg-violet-500 border border-violet-500/50 disabled:opacity-60">
-            {isGeneratingNew ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-            {isGeneratingNew ? 'Regenerating...' : 'Regenerate Questions'}
-          </button>
-        </motion.div>
-
-        {/* Progress */}
-        <div className="h-1.5 rounded-full mb-10 overflow-hidden bg-white/10">
-          <motion.div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 shadow-[0_0_15px_rgba(139,92,246,0.5)]"
-            animate={{ width: `${((current)/questions.length)*100}%` }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}/>
+    <motion.main
+      className="quiz-page"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -6 }}
+      transition={{ duration: 0.32 }}
+    >
+      <header className="mb-7">
+        <p className="mb-2 text-sm font-medium" style={{ color: 'var(--ink-soft)' }}>Question {current + 1} of {questions.length}</p>
+        <h1>Test what you actually know.</h1>
+        <div className="quiz-progress mt-5" aria-label={`${Math.round((current / questions.length) * 100)}% complete`}>
+          <motion.div
+            className="quiz-progress-fill"
+            initial={false}
+            animate={{ scaleX: (current + 1) / questions.length }}
+            transition={{ duration: 0.32 }}
+          />
         </div>
+      </header>
 
-        {/* Question */}
+      <div className="mx-auto w-full max-w-3xl">
         <AnimatePresence mode="wait">
-          <motion.div key={current} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.4 }}
-            className="surface rounded-3xl p-10 mb-8">
-            <p className="text-2xl leading-relaxed font-medium text-zinc-100">{q.question}</p>
-          </motion.div>
+          <motion.section
+            key={current}
+            className="quiz-question mb-5"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.24 }}
+          >
+            <h2 className="m-0 text-2xl leading-relaxed">{question.question}</h2>
+          </motion.section>
         </AnimatePresence>
 
-        {/* Options */}
-        <div className="flex flex-col gap-4">
-          <AnimatePresence>
-            {q.options.map((opt, i) => {
-              const isCorrect = opt === correctAnswer
-              const isSelected = opt === selected
-              let baseStyle = "bg-white/5 border-white/10 text-zinc-300"
-              if (selected) {
-                if (isCorrect) baseStyle = "bg-emerald-500/10 border-emerald-500/40 text-emerald-300 shadow-[0_0_30px_rgba(16,185,129,0.15)]"
-                else if (isSelected) baseStyle = "bg-fuchsia-500/10 border-fuchsia-500/40 text-fuchsia-300 shadow-[0_0_30px_rgba(217,70,239,0.15)]"
-                else baseStyle = "bg-white/5 border-white/5 text-zinc-500 opacity-50"
-              }
-              return (
-                <motion.button key={`${current}-${i}`}
-                  initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.32, ease: [0.4, 0, 0.2, 1] }}
-                  whileHover={!selected ? { x: 6, scale: 1.01 } : {}}
-                  onClick={() => pick(opt)}
-                  className={`flex items-center gap-6 text-left px-6 py-5 rounded-2xl text-[15px] transition-all font-medium border backdrop-blur-md cursor-${selected?'default':'pointer'} ${baseStyle}`}>
-                  <div className={`w-8 h-8 rounded-xl border flex items-center justify-center text-sm font-bold flex-shrink-0 opacity-70 border-current`}>
-                    {String.fromCharCode(65+i)}
-                  </div>
-                  <span className="flex-1 leading-relaxed">{opt}</span>
-                  {selected && isCorrect && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 400 }}><CheckCircle2 size={24} className="text-emerald-400" /></motion.div>}
-                  {selected && isSelected && !isCorrect && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 400 }}><XCircle size={24} className="text-fuchsia-400" /></motion.div>}
-                </motion.button>
-              )
-            })}
-          </AnimatePresence>
+        <div className="flex flex-col gap-3">
+          {question.options.map((option, index) => {
+            const isCorrect = option === correctAnswer
+            const isSelected = option === selected
+            const stateClass = selected && isCorrect
+              ? 'is-correct'
+              : selected && isSelected
+                ? 'is-wrong'
+                : ''
+            return (
+              <motion.button
+                key={`${current}-${index}`}
+                type="button"
+                className={`quiz-option ${stateClass}`}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: index * 0.025 }}
+                onClick={() => pick(option)}
+                disabled={Boolean(selected)}
+              >
+                <span className="quiz-option-letter mr-3 inline-grid h-8 w-8 place-items-center rounded-[var(--radius-sm)] font-bold">
+                  {String.fromCharCode(65 + index)}
+                </span>
+                {option}
+                {selected && isCorrect && (
+                  <span className="quiz-option-feedback is-correct-feedback">
+                    <Check size={16} aria-hidden="true" /> Correct
+                  </span>
+                )}
+                {selected && isSelected && !isCorrect && (
+                  <span className="quiz-option-feedback is-wrong-feedback">
+                    <X size={16} aria-hidden="true" /> Not quite
+                  </span>
+                )}
+              </motion.button>
+            )
+          })}
         </div>
 
-        {/* Next */}
-        <AnimatePresence>
-          {selected && (
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="surface mt-10 flex justify-between items-center p-6 rounded-2xl gap-4">
-              <div>
-                <p className={`text-[15px] font-medium ${selected===correctAnswer ? 'text-emerald-400' : 'text-fuchsia-400'}`}>
-                  {selected===correctAnswer ? '✓ Precision confirmed. Excellent work.' : `✗ The accurate response is: "${correctAnswer}"`}
-                </p>
-                {q.explanation && (
-                  <p className="text-xs text-zinc-400 mt-1 max-w-xl leading-relaxed">
-                    {q.explanation}
-                  </p>
-                )}
-              </div>
-              <motion.button whileHover={{ scale: 1.05, x: 2 }} whileTap={{ scale: 0.95 }} onClick={next}
-                className="px-8 py-3 rounded-xl text-sm font-semibold text-white bg-violet-600/80 hover:bg-violet-500 border border-violet-500/50 shadow-[0_0_20px_rgba(139,92,246,0.3)] transition-all flex-shrink-0">
-                {current+1 >= questions.length ? 'Finalize Assessment' : 'Proceed →'}
-              </motion.button>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {selected && (
+          <motion.div
+            className={`surface quiz-feedback mt-5 flex flex-wrap items-start justify-between gap-4 p-5 ${selected === correctAnswer ? 'is-correct' : 'is-wrong'}`}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <div>
+              <p className="m-0 font-bold">{selected === correctAnswer ? 'That’s right.' : 'Not quite.'}</p>
+              <p className="quiz-explanation">{question.explanation || `The correct answer is ${correctAnswer}.`}</p>
+            </div>
+            <button type="button" className="btn-primary shrink-0 px-5 py-2.5" onClick={next}>
+              {current + 1 >= questions.length ? 'See your score' : 'Next question'}
+            </button>
+          </motion.div>
+        )}
       </div>
-    </motion.div>
+    </motion.main>
   )
 }

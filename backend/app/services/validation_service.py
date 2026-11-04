@@ -1,22 +1,55 @@
+import logging
+import math
 import re
-import string
+import unicodedata
 from typing import List, Dict, Any, Optional
 
+logger = logging.getLogger(__name__)
 _STOPWORDS = {"a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "is", "are", "was", "were", "be", "been", "this", "that", "it"}
+_OPTION_WARNING_THRESHOLD = 0.72
+_OPTION_REJECTION_THRESHOLD = 0.90
+
+
+def _content_tokens(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", (text or "").casefold())) - _STOPWORDS
+
+
+def _answer_is_supported(answer: str, source_text: str) -> bool:
+    normalized_answer = _normalize_text(answer)
+    normalized_source = _normalize_text(source_text)
+    if not normalized_answer or not normalized_source:
+        return False
+    if normalized_answer in normalized_source:
+        return True
+
+    answer_tokens = _content_tokens(answer)
+    if len(answer_tokens) < 2:
+        return False
+    source_tokens = _content_tokens(source_text)
+    overlap = len(answer_tokens & source_tokens)
+    required_overlap = max(2, math.ceil(len(answer_tokens) * 0.55))
+    return overlap >= required_overlap
 
 
 def _normalize_text(text: str) -> str:
-    """Normalize text by lowering, stripping punctuation, and extra whitespace."""
+    """Normalize Unicode text, punctuation, and whitespace for comparison."""
     if not text:
         return ""
-    text = text.lower()
-    text = text.translate(str.maketrans("", "", string.punctuation))
-    return " ".join(text.split())
+    text = unicodedata.normalize("NFKC", text).casefold()
+    return " ".join(re.findall(r"[^\W_]+", text, re.UNICODE))
 
 
 def _token_set(text: str) -> set:
     norm = _normalize_text(text)
     return set(norm.split()) - _STOPWORDS
+
+
+def _option_similarity(left: str, right: str) -> float:
+    """Return token-set Jaccard similarity for a lightweight review signal."""
+    left_tokens = _token_set(left)
+    right_tokens = _token_set(right)
+    union = left_tokens | right_tokens
+    return len(left_tokens & right_tokens) / len(union) if union else 1.0
 
 
 def is_similar_question(q1: str, q2: str, threshold: float = 0.60) -> bool:
@@ -96,10 +129,33 @@ def validate_flashcards(data: Dict[str, Any], count: int = 8) -> List[Dict[str, 
     return out
 
 
+def _reused_distractor_pattern(options: List[str], other_options: List[str]) -> bool:
+    """Detect repeated full-option or near-duplicate distractors across questions."""
+    if not options or not other_options:
+        return False
+    current_norms = [_normalize_text(opt) for opt in options]
+    other_norms = [_normalize_text(opt) for opt in other_options]
+
+    for current in current_norms:
+        for other in other_norms:
+            if not current or not other:
+                continue
+            if current == other:
+                return True
+            if current in other or other in current:
+                return True
+            # semantic near-duplicate detection using token overlap
+            similarity = _option_similarity(current, other)
+            if similarity >= _OPTION_REJECTION_THRESHOLD:
+                return True
+    return False
+
+
 def validate_quiz(
     data: Dict[str, Any],
     exclude_questions: Optional[List[str]] = None,
-    count: int = 5
+    count: int = 5,
+    source_text: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Validate and deduplicate quiz questions against current batch and previous questions."""
     raw_questions = data.get("questions", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
@@ -107,6 +163,7 @@ def validate_quiz(
     
     out = []
     seen_in_batch = []
+    seen_distractors = []
 
     for i, qd in enumerate(raw_questions):
         if not isinstance(qd, dict):
@@ -118,36 +175,87 @@ def validate_quiz(
         difficulty = (qd.get("difficulty") or "medium").strip().lower()
         topic = (qd.get("topic") or "").strip()
         
-        # 1. Question validity
-        if len(q) < 12:
+        # 1. Reject incomplete, blank-based, or non-interrogative question stems.
+        if (
+            len(q) < 12
+            or not q.endswith("?")
+            or re.search(r"_{2,}|\.{3,}|\[\s*\]", q)
+            or not re.match(r"^(what|which|how|why|when|where|who|can|does|do|is|are)\b", q, re.IGNORECASE)
+        ):
             continue
-            
-        # 2. Options validity (exactly 4 distinct non-empty strings)
+        if source_text and not (_content_tokens(q) & _content_tokens(source_text)):
+            continue
+
+        # 2. Accept exactly four choices for this quiz flow and ensure no duplicates.
         if not isinstance(opts, list) or len(opts) != 4:
             continue
-        cleaned_opts = [str(o).strip() for o in opts if str(o).strip()]
-        if len(set(cleaned_opts)) != 4:
+        if any(not isinstance(option, str) for option in opts):
             continue
-            
-        # 3. Correct answer validity
-        correct = qd.get("correct") or qd.get("correct_answer") or qd.get("answer")
-        if not correct or str(correct).strip() not in cleaned_opts:
+        cleaned_opts = [option.strip() for option in opts]
+        normalized_options = [_normalize_text(option) for option in cleaned_opts]
+        if any(not option for option in cleaned_opts) or len(set(normalized_options)) != len(cleaned_opts):
             continue
-        correct_str = str(correct).strip()
 
-        # 4. Check for duplicates against previous questions (session exclusions)
+        similar_option_pairs = [
+            (left, right, _option_similarity(cleaned_opts[left], cleaned_opts[right]))
+            for left in range(len(cleaned_opts))
+            for right in range(left + 1, len(cleaned_opts))
+            if normalized_options[left] != normalized_options[right]
+            and _option_similarity(cleaned_opts[left], cleaned_opts[right]) >= _OPTION_WARNING_THRESHOLD
+        ]
+        for left, right, similarity in similar_option_pairs:
+            logger.warning(
+                "Quiz question %r has similar options %s and %s (Jaccard %.2f)",
+                q,
+                chr(65 + left),
+                chr(65 + right),
+                similarity,
+            )
+        if any(similarity >= _OPTION_REJECTION_THRESHOLD for _, _, similarity in similar_option_pairs):
+            continue
+
+        # 3. Correct answer validity and exactly one correct option.
+        correct = qd.get("correct") or qd.get("correct_answer") or qd.get("answer")
+        if not correct:
+            continue
+        matching = [
+            option for option, normalized_option in zip(cleaned_opts, normalized_options)
+            if normalized_option == _normalize_text(str(correct))
+        ]
+        if len(matching) != 1:
+            continue
+        correct_str = matching[0]
+        if source_text and not _answer_is_supported(correct_str, source_text):
+            continue
+
+        incorrect_opts = [option for option in cleaned_opts if option != correct_str]
+        if len(incorrect_opts) != 3:
+            continue
+
+        # 4. Reject cross-question repeated distractor pools.
+        repeated_distractor = False
+        for seen_question in seen_distractors:
+            if _reused_distractor_pattern(incorrect_opts, seen_question):
+                logger.warning("Rejected repeated distractor pattern across quiz questions: %r", q)
+                repeated_distractor = True
+                break
+        if repeated_distractor:
+            continue
+
+        # 5. Check for duplicates against previous questions (session exclusions)
         if any(is_similar_question(q, prev_q, threshold=0.58) for prev_q in exclusions):
             continue
 
-        # 5. Check for duplicates within current batch
+        # 6. Check for duplicates within current batch
         if any(is_similar_question(q, seen_q, threshold=0.58) for seen_q in seen_in_batch):
             continue
 
-        # 6. Fallback explanation if missing
+        # 7. Fallback explanation if missing
         if not explanation:
             explanation = f"'{correct_str}' is the correct answer based on the provided document."
 
         seen_in_batch.append(q)
+        seen_distractors.append(incorrect_opts)
         out.append({
             "id": i + 1,
             "question": q,

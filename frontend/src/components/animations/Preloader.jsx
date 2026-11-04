@@ -1,169 +1,174 @@
-import React, { useEffect, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { useNoteStore } from '../../store/noteStore'
-import LogoIcon from '../layout/LogoIcon'
+import React, { useEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import Logo from '../brand/Logo'
 
-const STAGES = [
-  { msg: 'Initializing NLP engine…',   pct: 15 },
-  { msg: 'Loading BART transformer…',  pct: 35 },
-  { msg: 'Calibrating spaCy pipeline…', pct: 57 },
-  { msg: 'Warming LSA & TF-IDF…',      pct: 78 },
-  { msg: 'Preparing your workspace…',  pct: 100 },
+const LINES = [
+  { text: 'Photosynthesis turns light into chemical energy.', highlight: 'light into chemical energy.' },
+  { text: 'Chlorophyll absorbs mostly blue and red light.', highlight: 'blue and red light.' },
+  { text: 'Oxygen is released as a by-product.' },
+  { text: 'Glucose stores the energy for the plant.', highlight: 'Glucose stores the energy' },
 ]
+const INTRO_DURATION = 3400
+const EXIT_DURATION = 500
+const TYPE_INTERVAL = 35
 
-export default function Preloader() {
-  const { preloaderDone, setPreloaderDone } = useNoteStore()
-  const [stage, setStage] = useState(0)
+function renderTypedLine(line, count, lineIndex) {
+  const phrase = line.highlight
+  if (!phrase) return line.text.slice(0, count)
+  const start = line.text.indexOf(phrase)
+  if (start < 0 || count <= start) return line.text.slice(0, count)
+  const before = line.text.slice(0, start)
+  const throughPhrase = Math.min(phrase.length, count - start)
+  const afterStart = start + phrase.length
+  return (
+    <>
+      {before}
+      <span className={`preloader-highlight preloader-highlight-${lineIndex}`}>
+        {phrase.slice(0, throughPhrase)}
+      </span>
+      {count > afterStart && line.text.slice(afterStart, count)}
+    </>
+  )
+}
+
+export default function Preloader({ onDone }) {
+  const reduceMotion = useReducedMotion()
   const [visible, setVisible] = useState(true)
+  const [showSummary, setShowSummary] = useState(Boolean(reduceMotion))
+  const [exiting, setExiting] = useState(false)
+  const [typedCounts, setTypedCounts] = useState(() => LINES.map(() => 0))
+  const completed = useRef(false)
+  const timers = useRef([])
 
   useEffect(() => {
-    const ts = STAGES.map((_, i) => setTimeout(() => setStage(i), i * 600))
-    ts.push(setTimeout(() => {
-      setVisible(false)
-      setTimeout(() => setPreloaderDone(true), 800)
-    }, STAGES.length * 600 + 200))
-    return () => ts.forEach(clearTimeout)
-  }, [])
+    let interval
+    const clearTimers = () => {
+      timers.current.forEach(clearTimeout)
+      timers.current = []
+      if (interval) clearInterval(interval)
+    }
+    const finish = (skip = false) => {
+      if (completed.current) return
+      completed.current = true
+      clearTimers()
+      if (skip) setShowSummary(true)
+      setExiting(true)
+      timers.current.push(setTimeout(() => {
+        setVisible(false)
+        onDone?.()
+      }, reduceMotion ? 0 : EXIT_DURATION))
+    }
+    const onKeyDown = () => finish(true)
+    const onPointerDown = () => finish(true)
+
+    if (reduceMotion) {
+      setShowSummary(true)
+      timers.current.push(setTimeout(() => finish(), 700))
+    } else {
+      interval = setInterval(() => {
+        setTypedCounts((current) => current.map((count, index) => (
+          Math.min(LINES[index].text.length, count + 1)
+        )))
+      }, TYPE_INTERVAL)
+      timers.current.push(setTimeout(() => setShowSummary(true), 2200))
+      timers.current.push(setTimeout(() => finish(), INTRO_DURATION))
+      timers.current.push(setTimeout(() => finish(true), 6000))
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('pointerdown', onPointerDown)
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('pointerdown', onPointerDown)
+      clearTimers()
+    }
+  }, [onDone, reduceMotion])
 
   return (
     <AnimatePresence>
       {visible && (
         <motion.div
+          className="preloader-overlay"
           initial={{ opacity: 1 }}
-          exit={{ opacity: 0, scale: 1.02 }}
-          transition={{ duration: 0.8, ease: [0.4, 0, 0.2, 1] }}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 9999,
-            background: '#120E0B',
-            display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            overflow: 'hidden',
-          }}
+          animate={{ opacity: exiting ? 0 : 1 }}
+          transition={{ duration: reduceMotion ? 0 : EXIT_DURATION / 1000, ease: 'easeOut' }}
+          aria-label="NoteBot introduction"
+          role="status"
         >
-          {/* ── Ambient background ── */}
-          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-            {/* Antique gold subtle glow */}
+          <div className="preloader-stage">
+            <AnimatePresence mode="wait">
+              {!showSummary ? (
+                <motion.section
+                  key="notes"
+                  className="preloader-notes"
+                  initial={reduceMotion ? false : { opacity: 0, y: 18, rotate: -2 }}
+                  animate={{ opacity: 1, y: 0, rotate: -1 }}
+                  exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.76, rotate: 0, y: -8 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.6, ease: 'easeOut' }}
+                  aria-label="Study notes preview"
+                >
+                  <div className="preloader-note-lines">
+                    {LINES.map((line, index) => (
+                      <p className="preloader-note-line" key={line.text}>
+                        {renderTypedLine(line, typedCounts[index], index)}
+                      </p>
+                    ))}
+                  </div>
+                  {!reduceMotion && (
+                    <>
+                      <motion.span
+                        className="preloader-sparkle"
+                        aria-hidden="true"
+                        animate={{ x: [0, 170, 260, 100], y: [0, 8, 24, 42] }}
+                        transition={{ duration: 1.6, delay: 0.7, ease: 'easeInOut' }}
+                      >✦</motion.span>
+                      <div className="preloader-chips" aria-hidden="true">
+                        {['Key idea', 'Definition', 'Example'].map((label, index) => (
+                          <motion.span
+                            className={`preloader-chip preloader-chip-${index}`}
+                            key={label}
+                            initial={{ opacity: 0, y: 12 }}
+                            animate={{ opacity: [0, 1, 1, 0], y: [12, 0, 0, -60], scale: [0.85, 1, 1, 0.6] }}
+                            transition={{ delay: 1.6 + index * 0.1, duration: 0.9, times: [0, 0.3, 0.65, 1] }}
+                          >{label}</motion.span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </motion.section>
+              ) : (
+                <motion.section
+                  key="summary"
+                  className="preloader-summary-card"
+                  initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 8, scale: 0.92 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.45, ease: 'easeOut' }}
+                >
+                  <p>Light becomes glucose. Oxygen is the by-product.</p>
+                </motion.section>
+              )}
+            </AnimatePresence>
             <motion.div
-              animate={{ scale: [1, 1.2, 1], opacity: [0.25, 0.45, 0.25] }}
-              transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-              style={{
-                position: 'absolute', top: '50%', left: '50%',
-                transform: 'translate(-50%,-50%)',
-                width: 600, height: 600, borderRadius: '50%',
-                background: 'radial-gradient(circle, rgba(201,161,91,0.12) 0%, transparent 65%)',
-                filter: 'blur(70px)',
-              }}
-            />
-            {/* Fine academic grid */}
-            <div style={{
-              position: 'absolute', inset: 0, opacity: 0.03,
-              backgroundImage: `
-                linear-gradient(rgba(241,229,200,0.6) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(241,229,200,0.6) 1px, transparent 1px)
-              `,
-              backgroundSize: '48px 48px',
-            }}/>
+              className="preloader-brand"
+              initial={reduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
+              animate={{ opacity: showSummary ? 1 : 0, y: showSummary ? 0 : 8 }}
+              transition={{ duration: reduceMotion ? 0 : 0.45, delay: reduceMotion ? 0 : 0.35 }}
+            >
+              <span className="preloader-logo-mark"><Logo markOnly size={48} /></span>
+              <span className="preloader-brand-copy">
+                <span>NoteBot</span>
+                <small>Study notes</small>
+              </span>
+            </motion.div>
           </div>
-
-          {/* ── Center Emblem ── */}
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-            style={{
-              position: 'relative',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              marginBottom: 32,
-            }}
-          >
-            {/* Refined gold frame */}
-            <div style={{
-              width: 92, height: 92, borderRadius: 24,
-              background: '#1C1612',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              position: 'relative',
-              border: '1px solid rgba(201,161,91,0.4)',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-            }}>
-              <div style={{
-                position: 'absolute', inset: 3, borderRadius: 20,
-                border: '1px solid rgba(241,229,200,0.08)',
-              }}/>
-              <LogoIcon size={56} />
-            </div>
-          </motion.div>
-
-          {/* ── Brand ── */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            style={{ textAlign: 'center', marginBottom: 44 }}
-          >
-            <h1 style={{
-              fontFamily: "'Newsreader', Georgia, serif",
-              fontSize: 48,
-              fontWeight: 500,
-              letterSpacing: '-0.03em',
-              lineHeight: 1,
-              marginBottom: 8,
-              color: '#F1E5C8',
-            }}>NoteBot</h1>
-            <p style={{
-              fontFamily: "'IBM Plex Sans', sans-serif",
-              fontSize: 12,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              color: '#C9A15B',
-              fontWeight: 500,
-            }}>AI Study Intelligence</p>
-          </motion.div>
-
-          {/* ── Progress ── */}
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            style={{ width: 280 }}
-          >
-            {/* Track */}
-            <div style={{
-              height: 2, borderRadius: 99, overflow: 'hidden', marginBottom: 12,
-              background: 'rgba(241,229,200,0.1)',
-            }}>
-              <motion.div
-                style={{
-                  height: '100%', borderRadius: 99,
-                  background: 'linear-gradient(90deg, #8C6F3B, #C9A15B, #F1E5C8)',
-                }}
-                animate={{ width: `${STAGES[stage].pct}%` }}
-                transition={{ duration: 0.5, ease: 'easeOut' }}
-              />
-            </div>
-            {/* Label row */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <motion.span
-                key={stage}
-                initial={{ opacity: 0, y: 3 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.25 }}
-                style={{
-                  fontFamily: "'IBM Plex Mono', monospace",
-                  fontSize: 11,
-                  color: 'rgba(241,229,200,0.65)',
-                  letterSpacing: '0.02em',
-                }}
-              >
-                {STAGES[stage].msg}
-              </motion.span>
-              <span style={{
-                fontFamily: "'IBM Plex Mono', monospace",
-                fontSize: 11,
-                color: '#C9A15B',
-                fontWeight: 600,
-              }}>{STAGES[stage].pct}%</span>
-            </div>
-          </motion.div>
+          <div className="preloader-progress" aria-hidden="true">
+            <motion.div
+              className="preloader-progress-fill"
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: exiting || reduceMotion ? 1 : showSummary ? 0.82 : 0.32 }}
+              transition={{ duration: reduceMotion ? 0 : 0.5, ease: 'easeOut' }}
+            />
+          </div>
         </motion.div>
       )}
     </AnimatePresence>

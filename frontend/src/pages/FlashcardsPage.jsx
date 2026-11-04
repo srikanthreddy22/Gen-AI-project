@@ -1,135 +1,111 @@
-import React from 'react'
-import { motion } from 'framer-motion'
+import React, { useEffect } from 'react'
+import { RotateCcw } from 'lucide-react'
 import { useNoteStore } from '../store/noteStore'
 
-const FALLBACK = [
-  {id:1,question:"What is tokenization?",answer:"Splitting raw text into individual units (tokens) such as words or subwords — the first step in any NLP preprocessing pipeline."},
-  {id:2,question:"What does BERT stand for?",answer:"Bidirectional Encoder Representations from Transformers — a model that reads text in both directions for deeper contextual understanding."},
-  {id:3,question:"What is a language model?",answer:"A probabilistic model that assigns probabilities to sequences of words, used for tasks like text generation, completion, and summarization."},
-]
+const COLORS = ['var(--coral)', 'var(--teal)', 'var(--sky)', 'var(--saffron)', 'var(--rose)']
 
 export default function FlashcardsPage() {
   const store = useNoteStore()
-  const cards = store.flashcards.length ? store.flashcards : []
-  const idx = cards.length ? (store.currentFlashcard % cards.length) : 0
-  const card = cards[idx]
+  const cards = store.flashcards
+  const index = cards.length ? store.currentFlashcard % cards.length : 0
+  const card = cards[index]
 
-  if (!cards.length) {
+  useEffect(() => {
+    if (!cards.length) return undefined
+    const onKeyDown = (event) => {
+      const target = event.target
+      const typing = target instanceof HTMLElement && (
+        target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+      )
+      if (typing || event.altKey || event.ctrlKey || event.metaKey) return
+
+      if (event.code === 'Space') {
+        if (target instanceof HTMLButtonElement) return
+        event.preventDefault()
+        store.flipFlashcard()
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        store.nextFlashcard()
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        store.prevFlashcard()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [cards.length, store.flipFlashcard, store.nextFlashcard, store.prevFlashcard])
+
+  if (!card) {
     return (
-      <div className="w-full h-full p-8 flex items-center justify-center text-zinc-300">
-        <div className="text-center max-w-lg">
-          <p className="text-2xl font-semibold mb-3">No flashcards for the current document</p>
-          <p className="text-zinc-400">Upload a document or generate flashcards from the active content to view study cards.</p>
+      <main className="flashcards-page flex min-h-[70vh] flex-col items-center justify-center text-center">
+        <div className="surface w-full max-w-xl p-8 flashcard-empty">
+          <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-[var(--radius-md)]" style={{ background: 'var(--paper)' }}>
+            <RotateCcw size={28} aria-hidden="true" />
+          </div>
+          <h1 className="m-0 text-3xl">Summarise a document first</h1>
+          <p className="mx-auto mt-3 max-w-md leading-relaxed">Add your notes to make a set of flashcards for quick recall practice.</p>
+          <button type="button" className="btn-primary mt-5 px-5 py-2.5" onClick={() => store.setActiveView('summarize')}>Go to Workspace</button>
         </div>
-      </div>
+      </main>
     )
   }
 
   return (
-    <div className="w-full h-full p-8 overflow-y-auto custom-scrollbar relative scroll-smooth flex flex-col">
-      <div className="max-w-[1200px] mx-auto w-full px-8 py-10 flex flex-col flex-1 z-10 relative">
-        
-        {/* Cinematic Hero Header */}
-        <div className="text-center mb-16">
-          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
-            className="inline-block px-4 py-1.5 rounded-full bg-white/[0.03] border border-white/[0.06] backdrop-blur-xl mb-6">
-            <span className="text-xs font-semibold tracking-[0.2em] uppercase text-zinc-400">Knowledge Deck • {idx + 1} / {cards.length}</span>
-          </motion.div>
-          <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1 }}
-            className="text-6xl font-semibold tracking-tight text-zinc-100 leading-[0.95] font-display">
-            Spaced Repetition <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-violet-200 to-fuchsia-400">Memory Engine.</span>
-          </motion.h1>
-          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6, delay: 0.2 }}
-            className="text-zinc-500 leading-relaxed max-w-2xl mx-auto mt-6 text-lg">
-            Tap the card to reveal the answer. Use the controls below to navigate through your extracted concepts.
-          </motion.p>
+    <main className="flashcards-page flex min-h-full flex-col">
+      <header className="mb-7">
+        <p className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink)' }}>Card {index + 1} of {cards.length}</p>
+        <h1>Recall it before you flip it.</h1>
+        <p className="page-description">Tap the card or press Space to reveal the answer. Use the arrow keys to move through your deck.</p>
+      </header>
+
+      <div className="flex flex-1 flex-col items-center justify-center gap-7">
+        <div className="flashcard-perspective">
+          <button
+            type="button"
+            className={`flashcard flashcard-color-${index % COLORS.length}`}
+            onClick={store.flipFlashcard}
+            aria-label={store.flashcardFlipped ? 'Show the question' : 'Reveal the answer'}
+            aria-pressed={store.flashcardFlipped}
+          >
+            <span
+              key={`${card.id ?? ''}-${card.question}-${card.answer}`}
+              className={`flashcard-inner${store.flashcardFlipped ? ' is-flipped' : ''}`}
+            >
+              <span className="flashcard-face flashcard-front" aria-hidden={store.flashcardFlipped}>
+                <span className="chip" style={{ background: 'var(--paper)' }}>Question</span>
+                <span className="font-display text-3xl leading-snug md:text-4xl">{card.question}</span>
+                <span className="text-sm font-semibold">Tap or press Space to flip</span>
+              </span>
+              <span className="flashcard-face flashcard-back" aria-hidden={!store.flashcardFlipped}>
+                <span className="chip" style={{ background: 'var(--paper)' }}>Answer</span>
+                <span className="font-display text-3xl leading-snug md:text-4xl">{card.answer}</span>
+                <span className="text-sm font-semibold">Tap or press Space to see the question</span>
+              </span>
+            </span>
+          </button>
         </div>
 
-        {/* Central Flashcard Area */}
-        <div className="flex-1 flex flex-col items-center justify-center relative w-full mb-16 perspective-[2000px]">
-          
-          {/* Card Stack Illusion */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="w-full max-w-3xl h-[400px] bg-white/[0.01] border border-white/[0.02] rounded-[36px] absolute translate-y-8 scale-[0.94] blur-[3px] opacity-20" />
-            <div className="w-full max-w-3xl h-[400px] bg-white/[0.02] border border-white/[0.04] rounded-[36px] absolute translate-y-4 scale-[0.97] blur-[1px] opacity-40" />
-          </div>
-
-          {/* Interactive Card */}
-          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, type: 'spring' }}
-            className="w-full max-w-3xl relative z-10 perspective-[2000px] h-[400px]" onClick={store.flipFlashcard}>
-            
-            <motion.div className="relative w-full h-full cursor-pointer transform-gpu"
-              whileHover={{ rotateX: 2, rotateY: -2, scale: 1.015, y: -4 }}
-              transition={{ duration: 0.5, ease: 'easeOut' }}>
-              
-              {/* Front Face (Question) */}
-              <motion.div
-                initial={false}
-                animate={{ 
-                  rotateY: store.flashcardFlipped ? 180 : 0, 
-                  opacity: store.flashcardFlipped ? 0 : 1,
-                  y: [0, -6, 0]
-                }}
-                transition={{ 
-                  duration: 0.7, type: 'tween', ease: [0.23, 1, 0.32, 1],
-                  y: { repeat: Infinity, duration: 6, ease: "easeInOut" }
-                }}
-                className="surface absolute inset-0 rounded-[36px] flex flex-col items-center justify-center text-center p-16 transition-shadow duration-700"
-                style={{ pointerEvents: store.flashcardFlipped ? 'none' : 'auto' }}>
-                
-                <div className="text-xs uppercase tracking-[0.3em] mb-10 font-semibold text-violet-400/80">Question</div>
-                <p className="text-5xl leading-tight font-medium text-zinc-100 drop-shadow-lg">{card.question}</p>
-              </motion.div>
-
-              {/* Back Face (Answer) */}
-              <motion.div
-                initial={{ rotateY: -180, opacity: 0 }}
-                animate={{ 
-                  rotateY: store.flashcardFlipped ? 0 : -180, 
-                  opacity: store.flashcardFlipped ? 1 : 0,
-                  y: [0, -6, 0]
-                }}
-                transition={{ 
-                  duration: 0.7, type: 'tween', ease: [0.23, 1, 0.32, 1],
-                  y: { repeat: Infinity, duration: 6, ease: "easeInOut", delay: 3 }
-                }}
-                className="surface absolute inset-0 rounded-[36px] flex flex-col items-center justify-center text-center p-16 transition-shadow duration-700"
-                style={{ pointerEvents: store.flashcardFlipped ? 'auto' : 'none' }}>
-                
-                <div className="text-xs uppercase tracking-[0.3em] mb-10 font-semibold text-fuchsia-400/80">Answer</div>
-                <p className="text-3xl leading-relaxed text-zinc-300 drop-shadow-md">{card.answer}</p>
-              </motion.div>
-              
-            </motion.div>
-          </motion.div>
-        </div>
-
-        {/* Elegant Navigation Controls */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
-          className="w-full max-w-3xl mx-auto flex items-center justify-between gap-8">
-          
-          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={store.prevFlashcard}
-            className="flex-1 py-5 rounded-3xl text-[15px] font-semibold text-zinc-300 bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] shadow-[0_10px_40px_rgba(0,0,0,0.3)] hover:bg-white/[0.06] hover:border-white/[0.1] transition-all flex items-center justify-center gap-3">
-            Previous
-          </motion.button>
-          
-          <div className="flex gap-2.5 px-4">
-            {cards.map((_, i) => (
-              <motion.div key={i} animate={{ scale: i === idx ? 1 : 0.8, opacity: i === idx ? 1 : 0.2 }}
-                className="cursor-pointer transition-all rounded-full"
-                style={{ width: i === idx ? 40 : 12, height: 6, background: i === idx ? 'linear-gradient(90deg, #8B5CF6, #D946EF)' : '#ffffff' }}
-                onClick={() => { useNoteStore.setState({ currentFlashcard: i, flashcardFlipped: false }) }}/>
+        <div className="flashcard-controls flex w-full max-w-[780px] items-center justify-between gap-4">
+          <button type="button" className="btn-secondary px-5 py-2.5" onClick={store.prevFlashcard}>Previous</button>
+          <button type="button" className="btn-primary flashcard-flip px-5 py-2.5" onClick={store.flipFlashcard}>
+            {store.flashcardFlipped ? 'Show question' : 'Flip'}
+          </button>
+          <div className="flashcard-dots" role="group" aria-label="Choose a flashcard">
+            {cards.map((item, dotIndex) => (
+              <button
+                key={item.id || `${item.question}-${dotIndex}`}
+                type="button"
+                className={`flashcard-dot${dotIndex === index ? ' is-current' : ''}`}
+                style={{ borderColor: dotIndex === index ? 'var(--saffron)' : 'var(--line)', background: dotIndex === index ? 'var(--saffron)' : 'var(--line)' }}
+                aria-label={`Card ${dotIndex + 1}`}
+                aria-current={dotIndex === index ? 'true' : undefined}
+                onClick={() => useNoteStore.setState({ currentFlashcard: dotIndex, flashcardFlipped: false })}
+              />
             ))}
           </div>
-
-          <motion.button whileHover={{ scale: 1.03, brightness: 1.1 }} whileTap={{ scale: 0.97 }} onClick={store.nextFlashcard}
-            className="flex-1 py-5 rounded-3xl text-[15px] font-semibold text-white bg-gradient-to-r from-violet-600 via-fuchsia-500 to-purple-500 shadow-[0_15px_60px_rgba(168,85,247,0.35)] transition-all flex items-center justify-center gap-3">
-            Next
-          </motion.button>
-        </motion.div>
-
+          <button type="button" className="btn-secondary px-5 py-2.5" onClick={store.nextFlashcard}>Next</button>
+        </div>
       </div>
-    </div>
+    </main>
   )
 }

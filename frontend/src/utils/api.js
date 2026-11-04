@@ -1,5 +1,5 @@
 import axios from 'axios'
-const configuredApiUrl = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/+$/, '')
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, '')
 const apiBaseUrl = configuredApiUrl
   ? (/\/api$/i.test(configuredApiUrl) ? configuredApiUrl : `${configuredApiUrl}/api`)
   : '/api'
@@ -7,6 +7,19 @@ const api = axios.create({
   baseURL: apiBaseUrl,
   timeout: 60000,
 })
+const HEALTH_CHECK_TIMEOUT_MS = 5000
+export const isHealthyResponse = (response) =>
+  response?.status >= 200 &&
+  response?.status < 300 &&
+  response?.data?.status === 'ok'
+
+export const checkHealth = async () => {
+  const response = await api.get('/health', { timeout: HEALTH_CHECK_TIMEOUT_MS })
+  if (!isHealthyResponse(response)) {
+    throw new Error('Backend health check returned an unexpected response')
+  }
+  return response
+}
 export const summarizeText = (text,opts={}) => api.post('/summarize/',{text,method:'auto',bullet_count:opts.bulletCount||6})
 export const uploadPDF = (file, onProgress) => {
   const f = new FormData()
@@ -30,7 +43,6 @@ export const uploadFile = (file, onProgress) => {
 export const getFlashcards = (docId,count=8) => api.post('/flashcards/',{doc_id:docId,count})
 export const getQuiz = (docId, count=5, excludeQuestions=[], generationId=null) => 
   api.post('/quiz/', { doc_id: docId, count, exclude_questions: excludeQuestions, generation_id: generationId })
-export const checkHealth = () => api.get('/health/')
 export const summarize = (text,method='auto',bulletCount=6) => api.post('/summarize/',{text,method,bullet_count:bulletCount})
 export const exportPDF = (data) => api.post('/export/pdf',data,{responseType:'blob'})
 export const downloadBlob = (blob, filename) => {

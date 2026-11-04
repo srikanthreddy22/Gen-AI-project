@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNoteStore } from '../../store/noteStore'
-import api from '../../utils/api'
+import { checkHealth } from '../../utils/api'
 import Logo from '../brand/Logo'
 
 const NAV = [
@@ -39,22 +39,24 @@ export default function Sidebar() {
   const [backendOnline, setBackendOnline] = useState(null)
 
   useEffect(() => {
-    const checkHealth = async () => {
+    let active = true
+    let timeoutId
+    const pollHealth = async () => {
       try {
-        const res = await api.get('/health')
-        if (res.data && res.data.status === 'ok') {
-          setBackendOnline(true)
-        } else {
-          setBackendOnline(false)
-        }
-      } catch (err) {
-        setBackendOnline(false)
+        await checkHealth()
+        if (active) setBackendOnline(true)
+      } catch {
+        if (active) setBackendOnline(false)
+      } finally {
+        if (active) timeoutId = setTimeout(pollHealth, 10000)
       }
     }
 
-    checkHealth()
-    const interval = setInterval(checkHealth, 10000)
-    return () => clearInterval(interval)
+    pollHealth()
+    return () => {
+      active = false
+      clearTimeout(timeoutId)
+    }
   }, [])
 
   return (
@@ -77,7 +79,7 @@ export default function Sidebar() {
               background: backendOnline === true ? 'var(--success)' : backendOnline === false ? 'var(--danger)' : 'var(--warn)',
             }} title={backendOnline === true ? 'Live NLP' : 'Connecting...'}/>
             <span className="sidebar-status" aria-live="polite" style={{ fontSize: 8, color: 'var(--paper-dim)', letterSpacing: '0.02em' }}>
-              {backendOnline === true ? 'live' : backendOnline === false ? 'Backend offline' : 'wait'}
+              {backendOnline === true ? 'Backend online' : backendOnline === false ? 'Backend offline' : 'Checking backend'}
             </span>
           </div>
         </div>

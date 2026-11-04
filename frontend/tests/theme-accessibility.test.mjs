@@ -42,7 +42,25 @@ test('reduced motion disables the drifting scene blobs', () => {
 })
 
 test('API configuration does not hardcode a localhost backend', () => {
-  assert.match(apiSource, /VITE_API_BASE_URL/)
+  assert.match(apiSource, /VITE_API_URL/)
   assert.match(apiSource, /:\s*'\/api'/)
   assert.doesNotMatch(apiSource, /localhost|127\.0\.0\.1/)
+})
+
+test('health checks validate the Flask health response and use a bounded timeout', () => {
+  assert.match(apiSource, /api\.get\('\/health',\s*\{\s*timeout:\s*HEALTH_CHECK_TIMEOUT_MS\s*\}\)/)
+  assert.match(apiSource, /HEALTH_CHECK_TIMEOUT_MS\s*=\s*5000/)
+  assert.match(apiSource, /response\?\.data\?\.status\s*===\s*'ok'/)
+  assert.match(apiSource, /throw new Error\('Backend health check returned an unexpected response'\)/)
+})
+
+test('sidebar only reports online after the health check succeeds', () => {
+  const sidebarPath = fileURLToPath(new URL('../src/components/layout/Sidebar.jsx', import.meta.url))
+  const sidebarSource = readFileSync(sidebarPath, 'utf8')
+
+  assert.match(sidebarSource, /await checkHealth\(\)[\s\S]*?setBackendOnline\(true\)/)
+  assert.match(sidebarSource, /catch\s*\{[\s\S]*?setBackendOnline\(false\)/)
+  assert.match(sidebarSource, /'Backend online'/)
+  assert.match(sidebarSource, /'Backend offline'/)
+  assert.match(sidebarSource, /'Checking backend'/)
 })

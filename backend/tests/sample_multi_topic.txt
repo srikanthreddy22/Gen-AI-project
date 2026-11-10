@@ -1,0 +1,18 @@
+Introduction
+
+This document contains multiple topics to test the RAG retrieval diversity.
+
+Topic A: Machine Learning
+Machine learning is a field that studies algorithms that learn from data. Supervised learning, unsupervised learning, and reinforcement learning are common paradigms.
+
+Topic B: Neural Networks
+Neural networks are composed of layers of neurons, activation functions, and optimization algorithms such as gradient descent.
+
+Topic C: Natural Language Processing
+NLP studies language understanding, tokenization, embeddings, and sequence models.
+
+Topic D: Computer Vision
+Computer vision focuses on image processing, convolutional neural networks, and object detection.
+
+Topic E: Evaluation Metrics
+Evaluation includes accuracy, precision, recall, F1 score, and confusion matrices.

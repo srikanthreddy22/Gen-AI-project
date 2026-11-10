@@ -1,0 +1,60 @@
+# JavaScript dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+
+# Python environments, bytecode, and test/lint caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environment files; keep example templates
+.env
+.env.*
+!.env.example
+!.env.*.example
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+/backend/.env
+/frontend/.env.local
+
+# Local vector index and temporary user documents
+backend/.vector_store.db*
+backend/tests/.vector_store_test.db*
+uploads/
+exports/
+backend/uploads/
+backend/exports/
+backend/data/
+backend/instance/*.db
+
+# Generated test and runtime reports
+test-results/
+playwright-report/
+generated-reports/
+*.log
+
+# Editor, operating system, and temporary files
+.idea/
+.vscode/*.log
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.temp
+*.swp
+*~
+
+# Local tooling artifacts
+.tsupgrader/
+**/vite.config.js.timestamp-*.mjs

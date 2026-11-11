@@ -157,6 +157,7 @@ def _persist_uploaded_file(filepath: str, filename: str) -> str:
     return stored_path
 
 
+@bp.route("/upload", methods=["POST"], strict_slashes=False)
 @bp.route("/upload/", methods=["POST"])
 @jwt_required()
 def upload_route():
@@ -292,6 +293,7 @@ def upload_route():
     })
 
 
+@bp.route("/upload/text", methods=["POST"], strict_slashes=False)
 @bp.route("/upload/text/", methods=["POST"])
 @jwt_required()
 def index_text_route():

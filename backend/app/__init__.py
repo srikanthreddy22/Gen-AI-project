@@ -56,6 +56,18 @@ def create_app(config_override=None):
         resources={
             r"/api/*": {
                 "origins": app.config.get("CORS_ORIGINS"),
+                "methods": [
+                    "GET",
+                    "POST",
+                    "PUT",
+                    "PATCH",
+                    "DELETE",
+                    "OPTIONS",
+                ],
+                "allow_headers": [
+                    "Content-Type",
+                    "Authorization",
+                ],
             }
         },
         supports_credentials=True,

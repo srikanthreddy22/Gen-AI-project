@@ -57,7 +57,6 @@ export const uploadPDF = (file, onProgress) => {
   const f = new FormData()
   f.append('file', file)
   return api.post('/upload/', f, {
-    headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 180000,
     onUploadProgress: (event) => {
       if (event.total) onProgress?.(Math.round((event.loaded / event.total) * 100))
@@ -66,10 +65,9 @@ export const uploadPDF = (file, onProgress) => {
 }
 export const indexText = (text, docName='pasted-text') => api.post('/upload/text/',{text,doc_name:docName})
 export const uploadFile = (file, onProgress) => {
-  const f=new FormData()
-  f.append('file',file)
-  return api.post('/upload/',f,{
-    headers:{'Content-Type':'multipart/form-data'},
+  const f = new FormData()
+  f.append('file', file)
+  return api.post('/upload/', f, {
     timeout: 180000,
     onUploadProgress: (e) => onProgress?.(Math.round(100*e.loaded/e.total))
   })

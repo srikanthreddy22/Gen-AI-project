@@ -239,9 +239,11 @@ export default function QuizPage() {
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
           {store.quizMode === 'pdf' && (
-            <label className="flex items-center gap-2 text-sm font-semibold">
+            <label htmlFor="quiz-question-count-select" className="flex items-center gap-2 text-sm font-semibold">
               Questions per quiz
               <select
+                id="quiz-question-count-select"
+                name="quizQuestionCount"
                 className="rounded-[var(--radius-sm)] border px-3 py-2"
                 style={{ background: 'var(--panel)', borderColor: 'var(--line)', color: 'var(--ink)' }}
                 value={store.quizQuestionCount}

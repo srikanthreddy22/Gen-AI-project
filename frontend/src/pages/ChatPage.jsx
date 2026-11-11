@@ -226,6 +226,7 @@ export default function ChatPage() {
             <label className="sr-only" htmlFor="chat-message">Ask a question about this document</label>
             <textarea
               id="chat-message"
+              name="message"
               rows={2}
               maxLength={5000}
               value={draft}

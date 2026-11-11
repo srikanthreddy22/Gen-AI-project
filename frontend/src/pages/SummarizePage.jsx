@@ -215,9 +215,11 @@ export default function SummarizePage() {
                     <button type="button" aria-pressed={inputType === 'paste'} onClick={() => setInputType('paste')} disabled={store.isProcessing}>Paste</button>
                   </div>
                 </div>
-                <label className="mt-4 flex items-center justify-between gap-4 text-sm font-semibold">
+                <label htmlFor="summarize-quiz-question-count-select" className="mt-4 flex items-center justify-between gap-4 text-sm font-semibold">
                   Questions per quiz
                   <select
+                    id="summarize-quiz-question-count-select"
+                    name="quizQuestionCount"
                     className="rounded-[var(--radius-sm)] border px-3 py-2"
                     style={{ background: 'var(--panel)', borderColor: 'var(--line)', color: 'var(--ink)' }}
                     value={store.quizQuestionCount}
@@ -239,7 +241,7 @@ export default function SummarizePage() {
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.2 }}
                     >
-                      <input {...getInputProps()} />
+                      <input id="file-upload-input" name="fileUpload" {...getInputProps()} />
                       <div className="upload-icon grid h-16 w-16 place-items-center rounded-[var(--radius-md)]" style={{ background: 'var(--saffron)' }}>
                         <UploadCloud size={28} aria-hidden="true" />
                       </div>
@@ -258,6 +260,8 @@ export default function SummarizePage() {
                       transition={{ duration: 0.2 }}
                     >
                       <textarea
+                        id="pasted-notes-textarea"
+                        name="pastedNotes"
                         value={pastedText}
                         onChange={(event) => setPastedText(event.target.value)}
                         onPaste={handleTextPaste}

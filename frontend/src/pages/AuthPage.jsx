@@ -76,9 +76,11 @@ export default function AuthPage({ onAuthenticated }) {
         </p>
 
         <form onSubmit={submit} style={{ display: 'grid', gap: 14 }}>
-          <label style={{ display: 'grid', gap: 6, color: 'var(--text-soft)', fontSize: 12 }}>
+          <label htmlFor="auth-email" style={{ display: 'grid', gap: 6, color: 'var(--text-soft)', fontSize: 12 }}>
             Email
             <input
+              id="auth-email"
+              name="email"
               type="email"
               autoComplete="email"
               required
@@ -89,9 +91,11 @@ export default function AuthPage({ onAuthenticated }) {
           </label>
 
           {isRegistering && (
-            <label style={{ display: 'grid', gap: 6, color: 'var(--text-soft)', fontSize: 12 }}>
+            <label htmlFor="auth-username" style={{ display: 'grid', gap: 6, color: 'var(--text-soft)', fontSize: 12 }}>
               Username
               <input
+                id="auth-username"
+                name="username"
                 type="text"
                 autoComplete="username"
                 minLength={2}
@@ -104,9 +108,11 @@ export default function AuthPage({ onAuthenticated }) {
             </label>
           )}
 
-          <label style={{ display: 'grid', gap: 6, color: 'var(--text-soft)', fontSize: 12 }}>
+          <label htmlFor="auth-password" style={{ display: 'grid', gap: 6, color: 'var(--text-soft)', fontSize: 12 }}>
             Password
             <input
+              id="auth-password"
+              name="password"
               type="password"
               autoComplete={isRegistering ? 'new-password' : 'current-password'}
               minLength={isRegistering ? 8 : undefined}

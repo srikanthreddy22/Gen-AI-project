@@ -13,6 +13,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     stream=sys.stdout
 )
+logger = logging.getLogger(__name__)
 
 
 def _normalize_cors_origins(raw_value):
@@ -55,8 +56,8 @@ def create_app(config_override=None):
     CORS(
         app,
         resources={
-            r"/api/*": {
-                "origins": app.config.get("CORS_ORIGINS"),
+            r"/*": {
+                "origins": "*",
                 "methods": [
                     "GET",
                     "POST",
@@ -68,6 +69,7 @@ def create_app(config_override=None):
                 "allow_headers": [
                     "Content-Type",
                     "Authorization",
+                    "X-Requested-With",
                 ],
                 "supports_credentials": True,
             }
@@ -75,21 +77,33 @@ def create_app(config_override=None):
         supports_credentials=True,
     )
 
+    @app.before_request
+    def handle_options_preflight():
+        if request.method == "OPTIONS":
+            response = app.make_default_options_response()
+            origin = request.headers.get("Origin")
+            if origin:
+                response.headers["Access-Control-Allow-Origin"] = origin
+            else:
+                response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            req_headers = request.headers.get("Access-Control-Request-Headers")
+            if req_headers:
+                response.headers["Access-Control-Allow-Headers"] = req_headers
+            else:
+                response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+            response.headers["Access-Control-Max-Age"] = "86400"
+            return response
+
     @app.after_request
     def attach_cors_headers(response):
         origin = request.headers.get("Origin")
-        allowed_origins = app.config.get("CORS_ORIGINS") or [
-            "https://note-bot-genai.vercel.app",
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-        ]
-        if origin and (origin in allowed_origins or "*" in allowed_origins):
+        if origin:
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
         return response
 
     @app.errorhandler(HTTPException)
@@ -100,12 +114,11 @@ def create_app(config_override=None):
         })
         response.status_code = e.code
         origin = request.headers.get("Origin")
-        allowed_origins = app.config.get("CORS_ORIGINS") or ["https://note-bot-genai.vercel.app"]
-        if origin and (origin in allowed_origins or "*" in allowed_origins):
+        if origin:
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
         return response
 
     @app.errorhandler(Exception)
@@ -117,12 +130,11 @@ def create_app(config_override=None):
         })
         response.status_code = 500
         origin = request.headers.get("Origin")
-        allowed_origins = app.config.get("CORS_ORIGINS") or ["https://note-bot-genai.vercel.app"]
-        if origin and (origin in allowed_origins or "*" in allowed_origins):
+        if origin:
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
         return response
 
     # Optional infrastructure dependencies may not be installed in local unit-test environments.
@@ -139,7 +151,7 @@ def create_app(config_override=None):
     from .routes.summarize import bp as summarize_bp
     from .routes.flashcards import bp as flashcards_bp
     from .routes.quiz import bp as quiz_bp
-    from .routes.upload import bp as upload_bp
+    from .routes.upload import bp as upload_bp, upload_route, index_text_route
     from .routes.export import bp as export_bp
     from .routes.admin import bp as admin_bp
     from .routes.auth import bp as auth_bp
@@ -183,8 +195,19 @@ def create_app(config_override=None):
     def home():
         return jsonify({"status": "Backend Running Successfully"})
 
+    @app.route('/health')
     @app.route('/api/health')
     def health():
-        return {'status': 'ok', 'version': '1.0.0'}
+        return jsonify({'status': 'ok', 'version': '1.0.0'})
+
+    @app.route('/upload', methods=['POST'], strict_slashes=False)
+    @app.route('/upload/', methods=['POST'])
+    def root_upload():
+        return upload_route()
+
+    @app.route('/upload/text', methods=['POST'], strict_slashes=False)
+    @app.route('/upload/text/', methods=['POST'])
+    def root_upload_text():
+        return index_text_route()
 
     return app

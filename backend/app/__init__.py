@@ -33,7 +33,7 @@ def _normalize_cors_origins(raw_value):
         return origins
     sanitized = str(raw_value).strip()
     if not sanitized or sanitized == "*":
-        return origins
+        return origins  # Fallback to safe explicit list when credentials are true
     if sanitized.lower().startswith("cors_origins="):
         sanitized = sanitized.split("=", 1)[1].strip()
     if sanitized.startswith("[") and sanitized.endswith("]"):
@@ -50,61 +50,26 @@ def create_app(config_override=None):
     app.config.from_object(Config)
     if config_override:
         app.config.update(config_override)
+    
     app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32 MB
-    app.config['CORS_ORIGINS'] = _normalize_cors_origins(app.config.get('CORS_ORIGINS'))
+    
+    # Get the clean, normalized list of allowed origins
+    allowed_origins = _normalize_cors_origins(app.config.get('CORS_ORIGINS'))
+    app.config['CORS_ORIGINS'] = allowed_origins
 
+    # Initialize flask-cors cleanly using an explicit list of origins (NEVER "*") with credentials
     CORS(
         app,
         resources={
             r"/*": {
-                "origins": "*",
-                "methods": [
-                    "GET",
-                    "POST",
-                    "PUT",
-                    "PATCH",
-                    "DELETE",
-                    "OPTIONS",
-                ],
-                "allow_headers": [
-                    "Content-Type",
-                    "Authorization",
-                    "X-Requested-With",
-                ],
+                "origins": allowed_origins,
+                "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+                "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
                 "supports_credentials": True,
             }
         },
         supports_credentials=True,
     )
-
-    @app.before_request
-    def handle_options_preflight():
-        if request.method == "OPTIONS":
-            response = app.make_default_options_response()
-            origin = request.headers.get("Origin")
-            if origin:
-                response.headers["Access-Control-Allow-Origin"] = origin
-            else:
-                response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-            req_headers = request.headers.get("Access-Control-Request-Headers")
-            if req_headers:
-                response.headers["Access-Control-Allow-Headers"] = req_headers
-            else:
-                response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
-            response.headers["Access-Control-Max-Age"] = "86400"
-            return response
-
-    @app.after_request
-    def attach_cors_headers(response):
-        origin = request.headers.get("Origin")
-        if origin:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
-        return response
 
     @app.errorhandler(HTTPException)
     def handle_http_exception(e):
@@ -113,12 +78,6 @@ def create_app(config_override=None):
             "code": e.code,
         })
         response.status_code = e.code
-        origin = request.headers.get("Origin")
-        if origin:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
         return response
 
     @app.errorhandler(Exception)
@@ -129,12 +88,6 @@ def create_app(config_override=None):
             "code": 500,
         })
         response.status_code = 500
-        origin = request.headers.get("Origin")
-        if origin:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
         return response
 
     # Optional infrastructure dependencies may not be installed in local unit-test environments.

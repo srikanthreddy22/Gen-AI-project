@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timezone
 
 from flask import Blueprint, request, jsonify
@@ -76,6 +77,38 @@ def login():
         "token": token,
         "user": {"id": user.id, "email": user.email, "username": user.username},
     })
+
+
+@bp.route("/auth/guest", methods=["POST"])
+def guest_login():
+    guest_suffix = uuid.uuid4().hex[:8]
+    email = f"guest_{guest_suffix}@notebot.local"
+    username = f"guest_{guest_suffix}"
+    user = User(
+        email=email,
+        username=username,
+        password_hash=generate_password_hash(uuid.uuid4().hex),
+    )
+    try:
+        db.session.add(user)
+        db.session.flush()
+        db.session.add(UserProfile(user_id=user.id, full_name="Guest User"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    token = create_access_token(identity=str(user.id))
+    return jsonify({
+        "message": "Guest sign-in successful.",
+        "token": token,
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "username": "Guest User",
+            "is_guest": True,
+        },
+    }), 200
 
 
 @bp.route("/auth/me", methods=["GET"])

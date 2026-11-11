@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
-import { ACCESS_TOKEN_KEY, login, register } from '../utils/api'
+import { ACCESS_TOKEN_KEY, login, loginAsGuest, register } from '../utils/api'
 
 export default function AuthPage({ onAuthenticated }) {
   const [mode, setMode] = useState('login')
@@ -26,6 +26,28 @@ export default function AuthPage({ onAuthenticated }) {
       const message = requestError?.response?.data?.error || 'Could not sign in. Please try again.'
       setError(message)
       toast.error(message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleGuestSignIn = async () => {
+    setError('')
+    setSubmitting(true)
+    try {
+      const response = await loginAsGuest()
+      if (response?.data?.token) {
+        window.localStorage.setItem(ACCESS_TOKEN_KEY, response.data.token)
+        onAuthenticated(response.data.user)
+      } else {
+        const guestUser = { id: 'guest', username: 'Guest User', email: 'guest@notebot.local', is_guest: true }
+        onAuthenticated(guestUser)
+      }
+      toast.success('Signed in as guest')
+    } catch {
+      const guestUser = { id: 'guest', username: 'Guest User', email: 'guest@notebot.local', is_guest: true }
+      onAuthenticated(guestUser)
+      toast.success('Signed in as guest')
     } finally {
       setSubmitting(false)
     }
@@ -106,6 +128,22 @@ export default function AuthPage({ onAuthenticated }) {
             {submitting ? 'Please wait…' : isRegistering ? 'Create account' : 'Sign in'}
           </button>
         </form>
+
+        <div style={{ display: 'flex', alignItems: 'center', margin: '20px 0 16px', gap: 12 }}>
+          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+          <span style={{ color: 'var(--text-soft)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>or</span>
+          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+        </div>
+
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={submitting}
+          onClick={handleGuestSignIn}
+          style={{ width: '100%', minHeight: 42, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+        >
+          Sign in as guest
+        </button>
 
         <p style={{ margin: '20px 0 0', color: 'var(--text-soft)', textAlign: 'center', fontSize: 12 }}>
           {isRegistering ? 'Already have an account?' : 'New to NoteBot?'}{' '}

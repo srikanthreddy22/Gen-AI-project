@@ -57,6 +57,24 @@ def test_registration_login_profile_and_revocable_logout():
     assert revoked.get_json()["error"] == "Access token has been revoked"
 
 
+def test_guest_sign_in():
+    app = create_app()
+    client = app.test_client()
+
+    response = client.post("/api/auth/guest")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "token" in data
+    assert data["user"]["is_guest"] is True
+    assert data["user"]["username"] == "Guest User"
+
+    headers = {"Authorization": f"Bearer {data['token']}"}
+    me_res = client.get("/api/auth/me", headers=headers)
+    assert me_res.status_code == 200
+    assert me_res.get_json()["profile"]["full_name"] == "Guest User"
+
+
+
 def test_cors_origin_value_is_sanitized_before_registration_requests():
     app = create_app({"CORS_ORIGINS": "CORS_ORIGINS=http://localhost:5173"})
     response = app.test_client().post(

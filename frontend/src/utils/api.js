@@ -49,6 +49,7 @@ export const checkHealth = async () => {
 }
 export const register = (credentials) => api.post('/auth/register', credentials)
 export const login = (credentials) => api.post('/auth/login', credentials)
+export const loginAsGuest = () => api.post('/auth/guest')
 export const getCurrentUser = () => api.get('/auth/me')
 export const logout = () => api.post('/auth/logout')
 export const summarizeText = (text,opts={}) => api.post('/summarize/',{text,method:'auto',bullet_count:opts.bulletCount||6})

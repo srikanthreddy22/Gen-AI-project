@@ -85,6 +85,21 @@ def test_cors_origin_value_is_sanitized_before_registration_requests():
 
     assert response.status_code == 201
     assert response.headers.get("Access-Control-Allow-Origin") == "http://localhost:5173"
+    assert response.headers.get("Access-Control-Allow-Credentials") == "true"
+
+
+def test_cors_allows_vercel_production_origin():
+    app = create_app()
+    response = app.test_client().post(
+        "/api/auth/register",
+        json={"email": "vercel@example.test", "username": "vercel-user", "password": "secure-pass-123"},
+        headers={"Origin": "https://note-bot-genai.vercel.app"},
+    )
+
+    assert response.status_code == 201
+    assert response.headers.get("Access-Control-Allow-Origin") == "https://note-bot-genai.vercel.app"
+    assert response.headers.get("Access-Control-Allow-Credentials") == "true"
+
 
 
 def test_expired_access_token_returns_a_clear_unauthorized_response():

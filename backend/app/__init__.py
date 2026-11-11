@@ -15,18 +15,32 @@ logging.basicConfig(
 
 
 def _normalize_cors_origins(raw_value):
+    origins = ["https://note-bot-genai.vercel.app"]
     if raw_value is None:
-        return "*"
+        for local in ["http://localhost:5173", "http://127.0.0.1:5173"]:
+            if local not in origins:
+                origins.append(local)
+        return origins
+    if isinstance(raw_value, list):
+        for item in raw_value:
+            if item not in origins:
+                origins.append(item)
+        return origins
     sanitized = str(raw_value).strip()
-    if not sanitized:
-        return "*"
+    if not sanitized or sanitized == "*":
+        for local in ["http://localhost:5173", "http://127.0.0.1:5173"]:
+            if local not in origins:
+                origins.append(local)
+        return origins
     if sanitized.lower().startswith("cors_origins="):
         sanitized = sanitized.split("=", 1)[1].strip()
-    if not sanitized:
-        return "*"
     if sanitized.startswith("[") and sanitized.endswith("]"):
         sanitized = sanitized[1:-1]
-    return sanitized.replace(" ", "")
+    for item in sanitized.split(","):
+        item = item.strip().replace(" ", "")
+        if item and item not in origins:
+            origins.append(item)
+    return origins
 
 
 def create_app(config_override=None):
@@ -35,9 +49,17 @@ def create_app(config_override=None):
     if config_override:
         app.config.update(config_override)
     app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32 MB
-    app.config['CORS_ORIGINS'] = _normalize_cors_origins(app.config.get('CORS_ORIGINS', '*'))
+    app.config['CORS_ORIGINS'] = _normalize_cors_origins(app.config.get('CORS_ORIGINS'))
 
-    CORS(app, resources={r"/api/*": {"origins": app.config.get("CORS_ORIGINS", "*")}})
+    CORS(
+        app,
+        resources={
+            r"/api/*": {
+                "origins": app.config.get("CORS_ORIGINS"),
+            }
+        },
+        supports_credentials=True,
+    )
 
     # Optional infrastructure dependencies may not be installed in local unit-test environments.
     if hasattr(db, 'init_app'):

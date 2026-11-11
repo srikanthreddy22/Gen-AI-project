@@ -1,5 +1,6 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
+from werkzeug.exceptions import HTTPException
 import logging
 import sys
 
@@ -15,11 +16,14 @@ logging.basicConfig(
 
 
 def _normalize_cors_origins(raw_value):
-    origins = ["https://note-bot-genai.vercel.app"]
+    origins = [
+        "https://note-bot-genai.vercel.app",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
     if raw_value is None:
-        for local in ["http://localhost:5173", "http://127.0.0.1:5173"]:
-            if local not in origins:
-                origins.append(local)
         return origins
     if isinstance(raw_value, list):
         for item in raw_value:
@@ -28,9 +32,6 @@ def _normalize_cors_origins(raw_value):
         return origins
     sanitized = str(raw_value).strip()
     if not sanitized or sanitized == "*":
-        for local in ["http://localhost:5173", "http://127.0.0.1:5173"]:
-            if local not in origins:
-                origins.append(local)
         return origins
     if sanitized.lower().startswith("cors_origins="):
         sanitized = sanitized.split("=", 1)[1].strip()
@@ -68,10 +69,61 @@ def create_app(config_override=None):
                     "Content-Type",
                     "Authorization",
                 ],
+                "supports_credentials": True,
             }
         },
         supports_credentials=True,
     )
+
+    @app.after_request
+    def attach_cors_headers(response):
+        origin = request.headers.get("Origin")
+        allowed_origins = app.config.get("CORS_ORIGINS") or [
+            "https://note-bot-genai.vercel.app",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+        if origin and (origin in allowed_origins or "*" in allowed_origins):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return response
+
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(e):
+        response = jsonify({
+            "error": e.description or str(e),
+            "code": e.code,
+        })
+        response.status_code = e.code
+        origin = request.headers.get("Origin")
+        allowed_origins = app.config.get("CORS_ORIGINS") or ["https://note-bot-genai.vercel.app"]
+        if origin and (origin in allowed_origins or "*" in allowed_origins):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return response
+
+    @app.errorhandler(Exception)
+    def handle_unexpected_exception(e):
+        logger.exception("Unhandled server exception: %s", e)
+        response = jsonify({
+            "error": "An internal server error occurred",
+            "code": 500,
+        })
+        response.status_code = 500
+        origin = request.headers.get("Origin")
+        allowed_origins = app.config.get("CORS_ORIGINS") or ["https://note-bot-genai.vercel.app"]
+        if origin and (origin in allowed_origins or "*" in allowed_origins):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return response
 
     # Optional infrastructure dependencies may not be installed in local unit-test environments.
     if hasattr(db, 'init_app'):

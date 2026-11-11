@@ -101,6 +101,24 @@ def test_cors_allows_vercel_production_origin():
     assert response.headers.get("Access-Control-Allow-Credentials") == "true"
 
 
+def test_cors_headers_attached_to_error_responses():
+    app = create_app()
+    client = app.test_client()
+
+    # 401 Error
+    res_401 = client.get("/api/auth/me", headers={"Origin": "https://note-bot-genai.vercel.app"})
+    assert res_401.status_code == 401
+    assert res_401.headers.get("Access-Control-Allow-Origin") == "https://note-bot-genai.vercel.app"
+    assert res_401.headers.get("Access-Control-Allow-Credentials") == "true"
+
+    # 404 Error
+    res_404 = client.get("/api/nonexistent-route", headers={"Origin": "https://note-bot-genai.vercel.app"})
+    assert res_404.status_code == 404
+    assert res_404.headers.get("Access-Control-Allow-Origin") == "https://note-bot-genai.vercel.app"
+    assert res_404.headers.get("Access-Control-Allow-Credentials") == "true"
+
+
+
 
 def test_expired_access_token_returns_a_clear_unauthorized_response():
     app = create_app()

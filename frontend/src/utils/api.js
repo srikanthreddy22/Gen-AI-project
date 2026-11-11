@@ -20,9 +20,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    const status = error?.response?.status
     const requestUrl = error?.config?.url || ''
     if (
-      error?.response?.status === 401 &&
+      status === 401 &&
       !requestUrl.includes('/auth/login') &&
       !requestUrl.includes('/auth/register') &&
       typeof window !== 'undefined' &&
@@ -30,6 +31,20 @@ api.interceptors.response.use(
     ) {
       window.localStorage.removeItem(ACCESS_TOKEN_KEY)
       window.dispatchEvent(new Event('notebot:auth-expired'))
+    }
+
+    if (error?.response) {
+      if (status === 429 && !error.response.data?.error) {
+        error.response.data = {
+          ...error.response.data,
+          error: 'Rate limit reached. Please wait a moment before trying again.',
+        }
+      } else if (status === 503 && !error.response.data?.error) {
+        error.response.data = {
+          ...error.response.data,
+          error: 'Backend service is waking up or temporarily unavailable. Please retry in a few seconds.',
+        }
+      }
     }
     return Promise.reject(error)
   },

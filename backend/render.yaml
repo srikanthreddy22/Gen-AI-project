@@ -2,17 +2,31 @@ services:
   - type: web
     name: notebot-backend
     env: python
+    root: backend
     plan: free
     region: oregon
-    root: backend
     buildCommand: "pip install --upgrade pip setuptools wheel && pip install -r requirements.txt"
-    startCommand: "gunicorn run:app --bind 0.0.0.0:$PORT --workers 1 --threads 2"
+    startCommand: "gunicorn run:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120"
     envVars:
       - key: SECRET_KEY
-        scope: env
-      - key: FRONTEND_URL
-        scope: env
-      - key: LOG_LEVEL
-        scope: env
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        value: "https://note-bot-genai.vercel.app,http://localhost:5173"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_EMBEDDING_MODEL
+        value: "gemini-embedding-001"
+      - key: GEMINI_EMBEDDING_DIMENSION
+        value: "3072"
+      - key: ENABLE_LOCAL_EMBEDDINGS
+        value: "false"
+      - key: ADMIN_API_KEY
+        sync: false
       - key: FLASK_DEBUG
-        scope: env
+        value: "0"
+      - key: ENVIRONMENT
+        value: "production"

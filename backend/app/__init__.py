@@ -28,8 +28,9 @@ def _normalize_cors_origins(raw_value):
         return origins
     if isinstance(raw_value, list):
         for item in raw_value:
-            if item not in origins:
-                origins.append(item)
+            clean = str(item).strip().rstrip("/")
+            if clean and clean not in origins:
+                origins.append(clean)
         return origins
     sanitized = str(raw_value).strip()
     if not sanitized or sanitized == "*":
@@ -39,7 +40,7 @@ def _normalize_cors_origins(raw_value):
     if sanitized.startswith("[") and sanitized.endswith("]"):
         sanitized = sanitized[1:-1]
     for item in sanitized.split(","):
-        item = item.strip().replace(" ", "")
+        item = item.strip().replace(" ", "").rstrip("/")
         if item and item not in origins:
             origins.append(item)
     return origins

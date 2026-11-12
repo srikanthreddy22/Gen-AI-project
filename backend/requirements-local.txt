@@ -1,0 +1,5 @@
+# Optional dependencies for local CPU-based embedding fallback.
+# Install these only if ENABLE_LOCAL_EMBEDDINGS=true in your environment.
+# Not required for cloud production deployments using Gemini embeddings (Render 512 MB tier).
+sentence-transformers==6.2.0
+torch==2.15.0

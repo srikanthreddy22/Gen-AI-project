@@ -21,7 +21,8 @@ def _sanitize_cors_origins(raw_value: str | None) -> str:
         return "*"
     if sanitized.startswith("[") and sanitized.endswith("]"):
         sanitized = sanitized[1:-1]
-    return sanitized.replace(" ", "")
+    origins = [item.strip().rstrip("/") for item in sanitized.split(",") if item.strip()]
+    return ",".join(origins) if origins else "*"
 
 
 class Config:
@@ -89,10 +90,17 @@ class Config:
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "45"))
-    SENTENCE_TRANSFORMERS_MODEL = os.getenv(
-        "SENTENCE_TRANSFORMERS_MODEL",
-        "all-MiniLM-L6-v2",
+    GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+    GEMINI_EMBEDDING_DIMENSION = int(os.getenv("GEMINI_EMBEDDING_DIMENSION", "3072"))
+    LOCAL_EMBEDDING_MODEL = os.getenv(
+        "LOCAL_EMBEDDING_MODEL",
+        "sentence-transformers/all-MiniLM-L6-v2",
     )
+    LOCAL_EMBEDDING_DEVICE = os.getenv("LOCAL_EMBEDDING_DEVICE", "cpu")
+    ENABLE_LOCAL_EMBEDDINGS = os.getenv("ENABLE_LOCAL_EMBEDDINGS", "false").strip().lower() in {
+        "1", "true", "yes",
+    }
+    MIN_RETRIEVAL_SCORE = float(os.getenv("MIN_RETRIEVAL_SCORE", "0.35"))
     UPLOAD_FOLDER = os.getenv(
         "UPLOAD_FOLDER",
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "uploads"),

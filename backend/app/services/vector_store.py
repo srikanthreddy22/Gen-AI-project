@@ -123,7 +123,13 @@ def _metadata_for_chunk(
     page_number = source_meta.get("page_number")
     if isinstance(page_number, (int, float)) and not isinstance(page_number, bool):
         metadata["page_number"] = int(page_number)
-    for key in ("topic_group", "section"):
+    for key in (
+        "topic_group",
+        "section",
+        "embedding_provider",
+        "embedding_model",
+        "embedding_dimension",
+    ):
         value = source_meta.get(key)
         if isinstance(value, (str, int, float, bool)):
             metadata[key] = value
@@ -269,12 +275,39 @@ def add_document_chunks(
 
     try:
         upsert_started = time.perf_counter()
-        collection.upsert(
-            ids=ids,
-            documents=[str(chunk.get("chunk_text") or "") for chunk in chunks],
-            embeddings=embeddings,
-            metadatas=metadata,
-        )
+        try:
+            collection.upsert(
+                ids=ids,
+                documents=[str(chunk.get("chunk_text") or "") for chunk in chunks],
+                embeddings=embeddings,
+                metadatas=metadata,
+            )
+        except Exception as exc:
+            if "dimension" in str(exc).lower():
+                logger.warning("Dimension mismatch in Chroma collection; recreating collection: %s", exc)
+                persist_directory = _persist_directory()
+                with _clients_lock:
+                    cached = _clients.get(persist_directory)
+                    if cached:
+                        client, _ = cached
+                        try:
+                            client.delete_collection(name=COLLECTION_NAME)
+                        except Exception:
+                            pass
+                        collection = client.get_or_create_collection(
+                            name=COLLECTION_NAME,
+                            metadata={"hnsw:space": "cosine"},
+                        )
+                        _clients[persist_directory] = (client, collection)
+                collection.upsert(
+                    ids=ids,
+                    documents=[str(chunk.get("chunk_text") or "") for chunk in chunks],
+                    embeddings=embeddings,
+                    metadatas=metadata,
+                )
+            else:
+                raise
+
         stored = collection.get(ids=ids, include=["metadatas"])
         if set(stored.get("ids") or []) != set(ids):
             raise VectorStoreError("ChromaDB did not persist every document chunk")
@@ -308,13 +341,20 @@ def get_document_chunks(doc_id: str, user_id: str | None = None) -> List[Dict[st
             source_meta = json.loads(metadata.get("source_meta_json") or "{}")
         except json.JSONDecodeError as exc:
             raise VectorStoreError("Stored ChromaDB metadata is invalid") from exc
+        for key in ("embedding_provider", "embedding_model", "embedding_dimension"):
+            if key in metadata and key not in source_meta:
+                source_meta[key] = metadata[key]
+        emb = None
+        if embeddings is not None and index < len(embeddings):
+            raw_emb = embeddings[index]
+            emb = raw_emb.tolist() if hasattr(raw_emb, "tolist") else list(raw_emb)
         chunk = {
             "chunk_id": chunk_id,
             "chunk_index": int(metadata.get("chunk_index", 0)),
             "chunk_text": documents[index] or "",
             "doc_name": metadata.get("doc_name", "uploaded"),
             "source_meta": source_meta,
-            "embedding": embeddings[index].tolist() if hasattr(embeddings[index], "tolist") else list(embeddings[index]),
+            "embedding": emb,
         }
         if metadata.get("user_id") is not None:
             chunk["user_id"] = metadata["user_id"]
@@ -332,12 +372,13 @@ def similarity_search(
 ) -> List[Tuple[float, Dict[str, Any]]]:
     if top_k <= 0:
         return []
+    valid_query = _validated_embedding(query_embedding)
     collection = _get_collection()
     count = collection.count()
     if count == 0:
         return []
     result = collection.query(
-        query_embeddings=[_validated_embedding(query_embedding)],
+        query_embeddings=[valid_query],
         n_results=min(top_k, count),
         where=_where_document(doc_id, user_id),
         include=["documents", "metadatas", "embeddings", "distances"],
@@ -357,6 +398,9 @@ def similarity_search(
             source_meta = json.loads(metadata.get("source_meta_json") or "{}")
         except json.JSONDecodeError as exc:
             raise VectorStoreError("Stored ChromaDB metadata is invalid") from exc
+        for key in ("embedding_provider", "embedding_model", "embedding_dimension"):
+            if key in metadata and key not in source_meta:
+                source_meta[key] = metadata[key]
         embedding = embeddings[index]
         chunk = {
             "chunk_id": chunk_id,

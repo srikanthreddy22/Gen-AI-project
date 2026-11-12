@@ -7,7 +7,7 @@ import logging
 import re
 import time
 from typing import List, Dict, Any
-from .embedding_service import get_embeddings
+from .embedding_service import get_embeddings, get_embedding_profile, EmbeddingServiceError
 from .vector_store import add_document_chunks, get_document_chunks, similarity_search
 
 logger = logging.getLogger(__name__)
@@ -23,8 +23,24 @@ def _doc_id_for_text(text: str, owner_id: str | None = None) -> str:
     return f"doc_{h}"
 
 
+import inspect
+
+def _call_embeddings(texts: List[str], task_type: str = "RETRIEVAL_DOCUMENT") -> List[List[float]]:
+    fn = globals().get("get_embeddings", get_embeddings)
+    try:
+        sig = inspect.signature(fn)
+        if "task_type" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+            return fn(texts, task_type=task_type)
+        return fn(texts)
+    except Exception:
+        try:
+            return fn(texts, task_type=task_type)
+        except TypeError:
+            return fn(texts)
+
+
 def _get_index_embeddings(texts: List[str]) -> List[List[float]]:
-    embeddings = get_embeddings(texts)
+    embeddings = _call_embeddings(texts, task_type="RETRIEVAL_DOCUMENT")
     if len(embeddings) != len(texts):
         raise ValueError("Embedding service returned a different number of vectors than input chunks")
     return embeddings
@@ -194,8 +210,21 @@ def process_document(
     embedding_started = time.perf_counter()
     embs = _get_index_embeddings(texts)
     logger.info("[RAG] Generated embeddings in %.3fs (%d chunks)", time.perf_counter() - embedding_started, len(embs))
+    profile_meta = {}
+    try:
+        profile = get_embedding_profile()
+        profile_meta = {
+            "embedding_provider": profile.get("provider"),
+            "embedding_model": profile.get("model"),
+            "embedding_dimension": profile.get("dimension"),
+        }
+    except Exception:
+        pass
     for c, e in zip(chunks, embs):
         c["embedding"] = e
+        if profile_meta:
+            source_meta = c.setdefault("source_meta", {})
+            source_meta.update(profile_meta)
     # create lightweight topic grouping and store as metadata
     grouping_started = time.perf_counter()
     try:
@@ -224,8 +253,21 @@ def prepare_document_chunks(
     texts = [c["chunk_text"] for c in chunks]
     # batch embeddings
     embs = _get_index_embeddings(texts)
+    profile_meta = {}
+    try:
+        profile = get_embedding_profile()
+        profile_meta = {
+            "embedding_provider": profile.get("provider"),
+            "embedding_model": profile.get("model"),
+            "embedding_dimension": profile.get("dimension"),
+        }
+    except Exception:
+        pass
     for c, e in zip(chunks, embs):
         c["embedding"] = e
+        if profile_meta:
+            source_meta = c.setdefault("source_meta", {})
+            source_meta.update(profile_meta)
     # topic grouping best-effort
     try:
         _assign_topic_groups(chunks)
@@ -348,7 +390,7 @@ def retrieve_relevant(
         logger.warning(f"[RAG] No indexed chunks for doc_id={doc_id}")
         return []
 
-    query_embeddings = get_embeddings([query])
+    query_embeddings = _call_embeddings([query], task_type="RETRIEVAL_QUERY")
     if len(query_embeddings) != 1:
         raise ValueError("Embedding service did not return a vector for the query")
     q_emb = query_embeddings[0]
@@ -356,6 +398,20 @@ def retrieve_relevant(
         raise ValueError("Embedding service returned an empty query vector")
     if any(len(chunk.get("embedding") or []) != len(q_emb) for chunk in doc_chunks):
         raise ValueError("Stored document embeddings do not match the query embedding model")
+
+    first_meta = doc_chunks[0].get("source_meta") or {}
+    stored_provider = first_meta.get("embedding_provider")
+    stored_model = first_meta.get("embedding_model")
+    try:
+        profile = get_embedding_profile()
+        if stored_provider and stored_provider != profile.get("provider"):
+            raise ValueError(
+                f"Document was indexed with provider '{stored_provider}' ({stored_model}) "
+                f"but active provider is '{profile.get('provider')}' ({profile.get('model')}). "
+                f"Reindexing required."
+            )
+    except EmbeddingServiceError:
+        pass
 
     candidates = similarity_search(
         doc_id,

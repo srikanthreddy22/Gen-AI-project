@@ -11,6 +11,7 @@ from werkzeug.utils import secure_filename
 from ..extensions import db
 from ..services.persistence_service import get_document_by_vector_id, register_document
 from ..services.rag_service import process_document
+from ..services.embedding_service import EmbeddingServiceError
 from ..services.vector_store import delete_document_embeddings
 
 bp = Blueprint("upload", __name__)
@@ -250,6 +251,11 @@ def upload_route():
             pages=pages,
         )
         logger.info("[Upload] Indexing completed in %.3fs: %s", time.perf_counter() - indexing_started, doc_id)
+    except EmbeddingServiceError as e:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        logger.warning("[Upload] Embedding service unavailable: %s", e)
+        return jsonify({"error": "Embeddings are not configured. Set GEMINI_API_KEY."}), 503
     except Exception as e:
         logger.exception("[Upload] Indexing failed after %.3fs for %s: %s", time.perf_counter() - indexing_started, file.filename, e)
     metadata_started = time.perf_counter()
@@ -317,6 +323,9 @@ def index_text_route():
             force_reindex=True,
             owner_id=user_id,
         )
+    except EmbeddingServiceError as e:
+        logger.warning("[Upload] Embedding service unavailable: %s", e)
+        return jsonify({"error": "Embeddings are not configured. Set GEMINI_API_KEY."}), 503
     except Exception as exc:
         logger.exception("[RAG] Failed to index pasted text")
         try:

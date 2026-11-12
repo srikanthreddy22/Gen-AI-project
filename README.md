@@ -33,7 +33,7 @@ Students often have to turn long lecture notes and documents into practical revi
 | UI and requests | Lucide React, React Dropzone, React Hot Toast, Axios, clsx |
 | Backend | Python 3.10+, Flask, Flask-CORS, Flask-SQLAlchemy, Flask-Migrate, Flask-JWT-Extended, PyMySQL, python-dotenv, Gunicorn |
 | Documents and export | PyMuPDF, ReportLab |
-| AI and retrieval | Google Gen AI SDK (Gemini 2.5 Flash), Sentence Transformers (`all-MiniLM-L6-v2`), ChromaDB |
+| AI and retrieval | Google Gen AI SDK (Gemini 2.5 Flash, `gemini-embedding-001`), ChromaDB, optional local Sentence Transformers (`all-MiniLM-L6-v2`) |
 | Tests | pytest, Node.js built-in test runner |
 
 ## AI and document architecture
@@ -46,13 +46,13 @@ The current summarizer is a lightweight extractive TF-IDF implementation. It sel
 
 Flashcard and quiz generation now use the Google Gen AI SDK with `gemini-2.5-flash`. Set `GEMINI_API_KEY` in the backend environment. Requests have a configurable timeout, bounded retry handling, quota/rate-limit errors, and JSON response validation. Local source-grounded generators remain available when Gemini is unavailable.
 
-Embeddings use the locally loaded Sentence Transformers `all-MiniLM-L6-v2` model for both indexing and retrieval queries. The model is loaded once per backend process. If it is unavailable, indexing and retrieval return explicit errors rather than creating approximate vectors.
+Embeddings default to Google's `gemini-embedding-001` via the official `google-genai` SDK with 3072 dimensions, using `RETRIEVAL_DOCUMENT` for chunk indexing and `RETRIEVAL_QUERY` for retrieval queries. This eliminates large PyTorch and model weights from production builds, keeping memory well below Render's 512 MB free tier ceiling. A deferred local Sentence Transformers (`all-MiniLM-L6-v2`) fallback is available for offline development by setting `ENABLE_LOCAL_EMBEDDINGS=true` and installing `backend/requirements-local.txt`. If no embedding provider is configured, uploads return a clean HTTP 503 rather than crashing or storing invalid vectors.
 
 ### RAG architecture
 
 When a document is uploaded or pasted, the backend creates a relational document record, chunks its extracted text, creates embeddings, and stores chunks in the persistent `notebot_documents` ChromaDB collection. Retrieval filters by both document and user. Flashcards and quiz questions are persisted in the relational database and associated with the document. Generation requests retrieve source chunks and build the Gemini prompt. Generated responses are validated, with a local fallback available for generation failures.
 
-The vector database is runtime data, not a checked-in dataset. It is excluded from Git and stored under `CHROMA_PERSIST_DIRECTORY`. Existing `backend/.vector_store.db` indexes are imported into Chroma on first access, with legacy chunk text re-embedded using `all-MiniLM-L6-v2`. Ownership is associated from relational document records when available. Records whose owners cannot be resolved remain unavailable to user-scoped retrieval until reindexed.
+The vector database is runtime data, not a checked-in dataset. It is excluded from Git and stored under `CHROMA_PERSIST_DIRECTORY`. Existing legacy SQLite indexes are imported into Chroma on first access with ownership metadata. Records whose owners cannot be resolved remain unavailable to user-scoped retrieval until reindexed.
 
 ### Relational persistence and migrations
 
@@ -93,7 +93,7 @@ flowchart LR
     Upload --> API
     API --> Summary[TF-IDF extractive summarizer]
     Upload --> Chunk[Text chunking]
-    Chunk --> Embeddings[Sentence Transformers]
+    Chunk --> Embeddings[Gemini Embeddings / Local]
     Chunk --> Store[(ChromaDB)]
     Store --> Retrieve[RAG retrieval]
     Retrieve --> Generation[Quiz and flashcard generation]
@@ -116,10 +116,10 @@ flowchart LR
 │   ├── tests/
 │   ├── .env.example
 │   ├── requirements.txt
+│   ├── requirements-local.txt
 │   └── run.py
 ├── frontend/
 │   ├── public/
-│   ├── screenshots/
 │   ├── src/
 │   │   ├── components/
 │   │   ├── data/
@@ -203,11 +203,18 @@ The backend reads `backend/.env`; the Vite frontend reads its own environment fi
 | `NOTEBOT_AUTO_CREATE_SCHEMA` | Test-only switch for creating tables without migrations |
 | `UPLOAD_FOLDER` | Private filesystem location for uploaded source files |
 | `CHROMA_PERSIST_DIRECTORY` | Persistent ChromaDB data directory |
-| `GEMINI_API_KEY` | Backend credential for Gemini generation |
+| `GEMINI_API_KEY` | Backend credential for Gemini generation and embeddings |
+| `GEMINI_EMBEDDING_MODEL` | Gemini embedding model name (default: `gemini-embedding-001`) |
+| `GEMINI_EMBEDDING_DIMENSION` | Gemini embedding dimension (default: `3072`) |
+| `ENABLE_LOCAL_EMBEDDINGS` | Set to `true` to enable deferred Sentence Transformers fallback |
+| `LOCAL_EMBEDDING_MODEL` | Local embedding model (default: `sentence-transformers/all-MiniLM-L6-v2`) |
+| `LOCAL_EMBEDDING_DEVICE` | Hardware device for local embeddings (`cpu`, `cuda`, `mps`) |
+| `MIN_RETRIEVAL_SCORE` | Minimum similarity score cutoff for retrieval |
 | `GEMINI_TIMEOUT_SECONDS` | Gemini request timeout; default is 45 seconds |
 | `RAG_TOP_K` | Maximum retrieval context size |
 | `RAG_CHUNK_SIZE` / `RAG_CHUNK_OVERLAP` | Document chunking parameters |
-| `ADMIN_API_KEY` | Optional key for protected administrative routes |
+| `ADMIN_API_KEY` | Key for protected administrative routes (e.g., `/api/admin/reindex`) |
+| `CORS_ORIGINS` | Comma-separated list or JSON array of allowed origins |
 | `VITE_API_URL` | Frontend API origin; use the backend origin, without a trailing `/api` |
 
 Templates are provided at `backend/.env.example` and `frontend/.env.example`. The frontend variable is public at build time; never put API keys or other secrets in `VITE_*` variables.
@@ -233,8 +240,21 @@ Templates are provided at `backend/.env.example` and `frontend/.env.example`. Th
 | `GET` / `POST` | `/api/chat/conversations` | List or create owned conversations |
 | `GET` / `POST` | `/api/chat/conversations/<id>/messages` | Read history or send a chat message |
 | `POST` | `/api/export/pdf` | Export study content to PDF |
+| `POST` | `/api/admin/reindex` | Safely reindex a document with active embeddings (`X-Admin-Key` required) |
+| `GET` | `/api/admin/inspect_index` | Inspect chunks and metadata for a document (`X-Admin-Key` required) |
 
-Administrative routes are defined in `backend/app/routes/admin.py`; configure `ADMIN_API_KEY` before exposing administrative actions.
+### Administrative reindexing
+
+When migrating between embedding models (e.g. from local 384-dim embeddings to Gemini 3072-dim embeddings), use the protected `/api/admin/reindex` endpoint to regenerate vector chunks:
+
+```bash
+curl -X POST https://<your-backend-host>/api/admin/reindex \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Key: <ADMIN_API_KEY>" \
+  -d '{"doc_id": "<document_id>"}'
+```
+
+The reindex endpoint validates newly generated embeddings before replacing any existing chunks, ensuring atomic rollbacks if an error occurs.
 
 ## Tests and build
 
@@ -253,29 +273,17 @@ cd backend
 python -m pytest -q tests
 ```
 
-This runs the backend unit tests in `backend/tests`. The separate `backend/test_rag_integration.py` script targets a running local API and requires the optional `requests` package; it is not part of this pytest command. Automated generation tests mock provider responses; successful local-fallback tests are not live-provider integration tests.
+This runs the full backend unit and integration test suite across all services and routes. Automated generation tests mock provider responses; successful local-fallback tests are not live-provider integration tests.
 
 ## Deployment
 
-- **Backend:** the root `render.yaml` describes the Render web service. Configure runtime secrets and model settings in Render's environment settings rather than committing them.
+- **Backend:** the root `render.yaml` describes the Render web service with optimized single-worker 4-thread Gunicorn configuration designed for Render's 512 MB free tier. Configure runtime secrets and model settings in Render's environment settings rather than committing them.
 - **Frontend:** deploy the `frontend/` directory to Vercel, using `npm run build` and `dist` as the output directory. Set `VITE_API_URL` to the deployed backend origin.
 - **SPA routing:** `frontend/vercel.json` and `frontend/public/_redirects` provide single-page-app rewrites for supported static hosts.
-- **CORS:** the current Flask app uses a permissive CORS configuration. Restrict allowed origins to the deployed frontend before using the API publicly.
+- **CORS:** configurable via `CORS_ORIGINS`. Preflight and standard headers are explicitly handled on all routes.
 - **Persistence:** relational records use `DATABASE_URL`; uploaded files and the ChromaDB index use filesystem storage. Configure durable database and filesystem storage before deploying.
 
 Deployment configuration in the repository does not establish that a live Render or Vercel deployment is currently available or healthy.
-
-## Screenshots
-
-Representative UI captures are available in [`frontend/screenshots/`](frontend/screenshots/).
-
-### Workspace
-
-![NoteBot workspace](frontend/screenshots/Final-Workspace-1357.png)
-
-### Flashcards
-
-![NoteBot flashcards](frontend/screenshots/Responsive-Flashcards-1357.png)
 
 ## Future enhancements
 

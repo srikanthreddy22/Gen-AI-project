@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -41,10 +41,8 @@ export default function AuthPage({ onAuthenticated }) {
   const [usernameFocused, setUsernameFocused] = useState(false)
   const [passwordFocused, setPasswordFocused] = useState(false)
   const [invalidFields, setInvalidFields] = useState({ email: false, username: false, password: false })
-  const [tilt, setTilt] = useState({ rotateX: 0, rotateY: 0 })
   const [isCardHovered, setIsCardHovered] = useState(false)
 
-  const cardRef = useRef(null)
   const reducedMotion = useReducedMotion()
   const isRegistering = mode === 'register'
 
@@ -61,28 +59,6 @@ export default function AuthPage({ onAuthenticated }) {
     setTimeout(() => {
       setInvalidFields((prev) => ({ ...prev, [fieldName]: false }))
     }, 600)
-  }
-
-  const handleMouseMove = (e) => {
-    if (reducedMotion) return
-    if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) return
-    const rect = cardRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const x = e.clientX - rect.left - rect.width / 2
-    const y = e.clientY - rect.top - rect.height / 2
-    const maxTilt = 4
-    const rotateY = (x / (rect.width / 2)) * maxTilt
-    const rotateX = -(y / (rect.height / 2)) * maxTilt
-    setTilt({ rotateX, rotateY })
-  }
-
-  const handleMouseLeave = () => {
-    setTilt({ rotateX: 0, rotateY: 0 })
-    setIsCardHovered(false)
-  }
-
-  const handleMouseEnter = () => {
-    setIsCardHovered(true)
   }
 
   const submit = async (event) => {
@@ -145,7 +121,7 @@ export default function AuthPage({ onAuthenticated }) {
         background: 'transparent',
       }}
     >
-      {/* 1. Animated background with SceneBackdrop and floating particles */}
+      {/* 1. Rotating photo backdrop with navy gradient & vignette */}
       <SceneBackdrop variant="auth" />
       <AuthParticles />
 
@@ -167,17 +143,17 @@ export default function AuthPage({ onAuthenticated }) {
               zIndex: 100,
               maxWidth: 420,
               width: 'calc(100% - 32px)',
-              background: 'rgba(255, 255, 255, 0.95)',
+              background: 'rgba(15, 23, 42, 0.95)',
               backdropFilter: 'blur(16px)',
               WebkitBackdropFilter: 'blur(16px)',
               border: '1px solid rgba(248, 113, 113, 0.45)',
               borderRadius: 16,
               padding: '12px 18px',
-              boxShadow: '0 12px 30px -5px rgba(239, 68, 68, 0.2), 0 4px 12px -2px rgba(15, 23, 42, 0.08)',
+              boxShadow: '0 12px 30px -5px rgba(0, 0, 0, 0.5), 0 4px 12px -2px rgba(239, 68, 68, 0.25)',
               display: 'flex',
               alignItems: 'center',
               gap: 12,
-              color: '#b91c1c',
+              color: '#FECACA',
               fontSize: 13,
               fontWeight: 500,
             }}
@@ -187,7 +163,7 @@ export default function AuthPage({ onAuthenticated }) {
                 width: 8,
                 height: 8,
                 borderRadius: '50%',
-                background: '#ef4444',
+                background: '#EF4444',
                 flexShrink: 0,
               }}
               aria-hidden="true"
@@ -197,10 +173,9 @@ export default function AuthPage({ onAuthenticated }) {
         )}
       </AnimatePresence>
 
-      {/* 2. Card with Entrance, Glassmorphism, Rounded Corners, and 3D Tilt */}
+      {/* 2. Dark Navy Glassmorphism Card */}
       <div
         style={{
-          perspective: 1000,
           width: '100%',
           display: 'flex',
           justifyContent: 'center',
@@ -208,10 +183,8 @@ export default function AuthPage({ onAuthenticated }) {
         }}
       >
         <motion.section
-          ref={cardRef}
-          onMouseMove={handleMouseMove}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
+          onMouseEnter={() => setIsCardHovered(true)}
+          onMouseLeave={() => setIsCardHovered(false)}
           initial={reducedMotion ? { opacity: 0 } : { opacity: 0, y: 24 }}
           animate={reducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
           transition={reducedMotion ? { duration: 0.3 } : { type: 'spring', stiffness: 120, damping: 16 }}
@@ -220,17 +193,15 @@ export default function AuthPage({ onAuthenticated }) {
             width: 'min(100%, 430px)',
             padding: '36px 32px',
             position: 'relative',
-            background: 'rgba(255, 255, 255, 0.78)',
+            background: 'rgba(10, 22, 40, 0.62)',
             backdropFilter: 'blur(24px)',
             WebkitBackdropFilter: 'blur(24px)',
             border: '1px solid rgba(34, 211, 238, 0.25)',
             boxShadow: isCardHovered
-              ? '0 20px 45px -10px rgba(34, 211, 238, 0.28), 0 12px 24px -6px rgba(15, 23, 42, 0.08)'
-              : '0 12px 35px -5px rgba(34, 211, 238, 0.16), 0 8px 16px -4px rgba(15, 23, 42, 0.05)',
-            transform: reducedMotion ? 'none' : `rotateX(${tilt.rotateX}deg) rotateY(${tilt.rotateY}deg)`,
-            transition: 'box-shadow 0.3s ease, transform 0.15s ease-out',
-            transformStyle: 'preserve-3d',
-            willChange: 'transform, box-shadow',
+              ? '0 20px 45px -10px rgba(34, 211, 238, 0.22), 0 12px 24px -6px rgba(0, 0, 0, 0.5)'
+              : '0 12px 35px -5px rgba(34, 211, 238, 0.12), 0 8px 16px -4px rgba(0, 0, 0, 0.35)',
+            transition: 'box-shadow 0.3s ease, border-color 0.3s ease',
+            willChange: 'box-shadow',
           }}
         >
           {/* Step 0: Logo with stroke animation and gentle pulse */}
@@ -243,7 +214,7 @@ export default function AuthPage({ onAuthenticated }) {
             {...stagger(1)}
             className="font-mono"
             style={{
-              color: 'var(--accent)',
+              color: '#22D3EE',
               fontSize: 11,
               fontWeight: 700,
               letterSpacing: '0.06em',
@@ -260,7 +231,7 @@ export default function AuthPage({ onAuthenticated }) {
               margin: '0 0 8px',
               fontSize: 32,
               fontWeight: 700,
-              color: 'var(--ink)',
+              color: '#F8FAFC',
               letterSpacing: '-0.02em',
             }}
           >
@@ -271,7 +242,7 @@ export default function AuthPage({ onAuthenticated }) {
           <motion.p
             {...stagger(3)}
             style={{
-              color: 'var(--text-soft)',
+              color: '#CBD5E1',
               margin: '0 0 24px',
               fontSize: 14,
               lineHeight: 1.6,
@@ -289,7 +260,7 @@ export default function AuthPage({ onAuthenticated }) {
                 style={{
                   display: 'grid',
                   gap: 6,
-                  color: emailFocused ? '#06b6d4' : 'var(--text-soft)',
+                  color: emailFocused ? '#22D3EE' : '#E2E8F0',
                   fontSize: 12,
                   fontWeight: 600,
                   transform: emailFocused && !reducedMotion ? 'translateY(-2px)' : 'none',
@@ -308,7 +279,7 @@ export default function AuthPage({ onAuthenticated }) {
                       pointerEvents: 'none',
                       display: 'flex',
                       alignItems: 'center',
-                      color: emailFocused ? '#0891b2' : '#94a3b8',
+                      color: emailFocused ? '#22D3EE' : '#94A3B8',
                       transition: 'color 0.2s ease',
                       zIndex: 2,
                     }}
@@ -320,6 +291,7 @@ export default function AuthPage({ onAuthenticated }) {
                     name="email"
                     type="email"
                     autoComplete="email"
+                    placeholder="you@example.com"
                     required
                     value={email}
                     onChange={(event) => {
@@ -342,16 +314,16 @@ export default function AuthPage({ onAuthenticated }) {
                       border: invalidFields.email
                         ? '1px solid var(--danger)'
                         : emailFocused
-                        ? '1px solid #22d3ee'
-                        : '1px solid rgba(203, 213, 225, 0.8)',
+                        ? '1px solid #22D3EE'
+                        : '1px solid rgba(34, 211, 238, 0.25)',
                       padding: '0 14px 0 38px',
                       background: emailFocused
-                        ? 'rgba(255, 255, 255, 0.98)'
-                        : 'rgba(255, 255, 255, 0.88)',
+                        ? 'rgba(15, 30, 52, 0.95)'
+                        : 'rgba(15, 30, 52, 0.8)',
                       boxShadow: emailFocused
-                        ? '0 0 0 2px rgba(34, 211, 238, 0.4), 0 0 12px rgba(34, 211, 238, 0.2)'
-                        : '0 1px 2px rgba(0, 0, 0, 0.04)',
-                      color: 'var(--ink)',
+                        ? '0 0 0 2px rgba(34, 211, 238, 0.4), 0 0 15px rgba(34, 211, 238, 0.25)'
+                        : '0 1px 2px rgba(0, 0, 0, 0.2)',
+                      color: '#F8FAFC',
                       fontSize: 14,
                       transition: 'background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
                       outline: 'none',
@@ -369,7 +341,7 @@ export default function AuthPage({ onAuthenticated }) {
                   style={{
                     display: 'grid',
                     gap: 6,
-                    color: usernameFocused ? '#06b6d4' : 'var(--text-soft)',
+                    color: usernameFocused ? '#22D3EE' : '#E2E8F0',
                     fontSize: 12,
                     fontWeight: 600,
                     transform: usernameFocused && !reducedMotion ? 'translateY(-2px)' : 'none',
@@ -407,16 +379,16 @@ export default function AuthPage({ onAuthenticated }) {
                         border: invalidFields.username
                           ? '1px solid var(--danger)'
                           : usernameFocused
-                          ? '1px solid #22d3ee'
-                          : '1px solid rgba(203, 213, 225, 0.8)',
+                          ? '1px solid #22D3EE'
+                          : '1px solid rgba(34, 211, 238, 0.25)',
                         padding: '0 14px',
                         background: usernameFocused
-                          ? 'rgba(255, 255, 255, 0.98)'
-                          : 'rgba(255, 255, 255, 0.88)',
+                          ? 'rgba(15, 30, 52, 0.95)'
+                          : 'rgba(15, 30, 52, 0.8)',
                         boxShadow: usernameFocused
-                          ? '0 0 0 2px rgba(34, 211, 238, 0.4), 0 0 12px rgba(34, 211, 238, 0.2)'
-                          : '0 1px 2px rgba(0, 0, 0, 0.04)',
-                        color: 'var(--ink)',
+                          ? '0 0 0 2px rgba(34, 211, 238, 0.4), 0 0 15px rgba(34, 211, 238, 0.25)'
+                          : '0 1px 2px rgba(0, 0, 0, 0.2)',
+                        color: '#F8FAFC',
                         fontSize: 14,
                         transition: 'background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
                         outline: 'none',
@@ -434,7 +406,7 @@ export default function AuthPage({ onAuthenticated }) {
                 style={{
                   display: 'grid',
                   gap: 6,
-                  color: passwordFocused ? '#06b6d4' : 'var(--text-soft)',
+                  color: passwordFocused ? '#22D3EE' : '#E2E8F0',
                   fontSize: 12,
                   fontWeight: 600,
                   transform: passwordFocused && !reducedMotion ? 'translateY(-2px)' : 'none',
@@ -453,7 +425,7 @@ export default function AuthPage({ onAuthenticated }) {
                       pointerEvents: 'none',
                       display: 'flex',
                       alignItems: 'center',
-                      color: passwordFocused ? '#0891b2' : '#94a3b8',
+                      color: passwordFocused ? '#22D3EE' : '#94A3B8',
                       transition: 'color 0.2s ease',
                       zIndex: 2,
                     }}
@@ -467,6 +439,7 @@ export default function AuthPage({ onAuthenticated }) {
                     autoComplete={isRegistering ? 'new-password' : 'current-password'}
                     minLength={isRegistering ? 8 : undefined}
                     maxLength={1024}
+                    placeholder="••••••••"
                     required
                     value={password}
                     onChange={(event) => {
@@ -489,16 +462,16 @@ export default function AuthPage({ onAuthenticated }) {
                       border: invalidFields.password
                         ? '1px solid var(--danger)'
                         : passwordFocused
-                        ? '1px solid #22d3ee'
-                        : '1px solid rgba(203, 213, 225, 0.8)',
+                        ? '1px solid #22D3EE'
+                        : '1px solid rgba(34, 211, 238, 0.25)',
                       padding: '0 42px 0 38px',
                       background: passwordFocused
-                        ? 'rgba(255, 255, 255, 0.98)'
-                        : 'rgba(255, 255, 255, 0.88)',
+                        ? 'rgba(15, 30, 52, 0.95)'
+                        : 'rgba(15, 30, 52, 0.8)',
                       boxShadow: passwordFocused
-                        ? '0 0 0 2px rgba(34, 211, 238, 0.4), 0 0 12px rgba(34, 211, 238, 0.2)'
-                        : '0 1px 2px rgba(0, 0, 0, 0.04)',
-                      color: 'var(--ink)',
+                        ? '0 0 0 2px rgba(34, 211, 238, 0.4), 0 0 15px rgba(34, 211, 238, 0.25)'
+                        : '0 1px 2px rgba(0, 0, 0, 0.2)',
+                      color: '#F8FAFC',
                       fontSize: 14,
                       transition: 'background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
                       outline: 'none',
@@ -521,7 +494,7 @@ export default function AuthPage({ onAuthenticated }) {
                       alignItems: 'center',
                       justifyContent: 'center',
                       borderRadius: 6,
-                      color: showPassword ? '#0891b2' : '#94a3b8',
+                      color: showPassword ? '#22D3EE' : '#94A3B8',
                       zIndex: 2,
                     }}
                     className="focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:outline-none"
@@ -550,11 +523,10 @@ export default function AuthPage({ onAuthenticated }) {
               </p>
             )}
 
-            {/* Step 6: Sign in button with continuous shimmer and loading spinner */}
+            {/* Step 6: Sign in button with #22D3EE background, #0A1628 text, shimmer sweep and spinner */}
             <motion.div {...stagger(6)}>
               <motion.button
                 type="submit"
-                className="btn-primary"
                 disabled={submitting}
                 whileTap={reducedMotion ? {} : { scale: 0.97 }}
                 style={{
@@ -563,12 +535,18 @@ export default function AuthPage({ onAuthenticated }) {
                   width: '100%',
                   minHeight: 44,
                   fontSize: 14,
-                  fontWeight: 600,
+                  fontWeight: 700,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   marginTop: 6,
+                  background: '#22D3EE',
+                  color: '#0A1628',
+                  borderRadius: 'var(--radius-sm)',
+                  border: 'none',
+                  cursor: submitting ? 'wait' : 'pointer',
                   boxShadow: '0 4px 14px -2px rgba(34, 211, 238, 0.45)',
+                  transition: 'opacity 0.2s ease, transform 0.15s ease',
                 }}
               >
                 {!reducedMotion && !submitting && (
@@ -578,7 +556,7 @@ export default function AuthPage({ onAuthenticated }) {
                       position: 'absolute',
                       inset: 0,
                       pointerEvents: 'none',
-                      background: 'linear-gradient(105deg, transparent 20%, rgba(255, 255, 255, 0.45) 50%, transparent 80%)',
+                      background: 'linear-gradient(105deg, transparent 20%, rgba(255, 255, 255, 0.5) 50%, transparent 80%)',
                     }}
                     animate={{ x: ['-100%', '200%'] }}
                     transition={{
@@ -593,14 +571,14 @@ export default function AuthPage({ onAuthenticated }) {
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <svg
                       className="animate-spin"
-                      style={{ width: 18, height: 18, color: '#ffffff' }}
+                      style={{ width: 18, height: 18, color: '#0A1628' }}
                       xmlns="http://www.w3.org/2000/svg"
                       fill="none"
                       viewBox="0 0 24 24"
                       aria-hidden="true"
                     >
                       <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path style={{ opacity: 0.85 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                      <path style={{ opacity: 0.9 }} fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                     </svg>
                     <span className="sr-only">{isRegistering ? 'Create account' : 'Sign in'}</span>
                   </span>
@@ -628,13 +606,14 @@ export default function AuthPage({ onAuthenticated }) {
               style={{
                 flex: 1,
                 height: 1,
-                background: 'rgba(34, 211, 238, 0.3)',
+                background: '#94A3B8',
+                opacity: 0.45,
                 transformOrigin: 'right center',
               }}
             />
             <span
               style={{
-                color: 'var(--text-soft)',
+                color: '#94A3B8',
                 fontSize: 11,
                 fontWeight: 700,
                 letterSpacing: '0.08em',
@@ -650,17 +629,18 @@ export default function AuthPage({ onAuthenticated }) {
               style={{
                 flex: 1,
                 height: 1,
-                background: 'rgba(34, 211, 238, 0.3)',
+                background: '#94A3B8',
+                opacity: 0.45,
                 transformOrigin: 'left center',
               }}
             />
           </motion.div>
 
-          {/* Step 8: Sign in as guest button with cyan glow & fill from left */}
+          {/* Step 8: Sign in as guest button with transparent bg, 1px border rgba(148, 163, 184, 0.35), text #E2E8F0 */}
           <motion.div {...stagger(8)}>
             <button
               type="button"
-              className="btn-secondary group"
+              className="group"
               disabled={submitting}
               onClick={handleGuestSignIn}
               style={{
@@ -675,23 +655,23 @@ export default function AuthPage({ onAuthenticated }) {
                 justifyContent: 'center',
                 gap: 8,
                 borderRadius: 'var(--radius-sm)',
-                background: 'rgba(255, 255, 255, 0.85)',
-                borderColor: 'rgba(203, 213, 225, 0.8)',
-                transition: 'border-color 0.25s ease, box-shadow 0.25s ease',
+                background: 'transparent',
+                border: '1px solid rgba(148, 163, 184, 0.35)',
+                color: '#E2E8F0',
+                cursor: submitting ? 'wait' : 'pointer',
+                transition: 'border-color 0.25s ease, box-shadow 0.25s ease, background-color 0.25s ease',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = '#22d3ee'
-                e.currentTarget.style.boxShadow = '0 0 16px rgba(34, 211, 238, 0.35)'
+                e.currentTarget.style.borderColor = '#22D3EE'
+                e.currentTarget.style.backgroundColor = 'rgba(34, 211, 238, 0.08)'
+                e.currentTarget.style.boxShadow = '0 0 16px rgba(34, 211, 238, 0.25)'
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'rgba(203, 213, 225, 0.8)'
+                e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.35)'
+                e.currentTarget.style.backgroundColor = 'transparent'
                 e.currentTarget.style.boxShadow = 'none'
               }}
             >
-              <span
-                aria-hidden="true"
-                className="absolute inset-0 bg-gradient-to-r from-cyan-100/70 via-cyan-50/50 to-white/40 -translate-x-full group-hover:translate-x-0 transition-transform duration-300 ease-out origin-left pointer-events-none"
-              />
               <span className="relative z-10">Sign in as guest</span>
             </button>
           </motion.div>
@@ -701,7 +681,7 @@ export default function AuthPage({ onAuthenticated }) {
             {...stagger(9)}
             style={{
               margin: '22px 0 0',
-              color: 'var(--text-soft)',
+              color: '#CBD5E1',
               textAlign: 'center',
               fontSize: 13,
             }}
@@ -720,7 +700,7 @@ export default function AuthPage({ onAuthenticated }) {
                 border: 0,
                 padding: '0 4px',
                 fontWeight: 600,
-                color: 'var(--accent)',
+                color: '#22D3EE',
                 cursor: 'pointer',
               }}
             >
@@ -733,7 +713,7 @@ export default function AuthPage({ onAuthenticated }) {
                   left: 0,
                   width: '100%',
                   height: 2,
-                  background: '#06b6d4',
+                  background: '#22D3EE',
                   transformOrigin: 'left',
                   transform: 'scaleX(0)',
                   transition: 'transform 0.25s ease-out',

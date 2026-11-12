@@ -35,7 +35,7 @@ export default function AuthParticles() {
     return null
   }
 
-  const activeParticles = isMobile ? DESKTOP_PARTICLES.slice(0, 6) : DESKTOP_PARTICLES
+  const activeParticles = isMobile ? DESKTOP_PARTICLES.slice(0, 8) : DESKTOP_PARTICLES
 
   return (
     <div

@@ -250,10 +250,10 @@ export default function SceneBackdrop({
   const isAuth = variant === 'auth'
   const computedImageStackStyle = imageStackOpacity !== null
     ? { opacity: imageStackOpacity }
-    : (isAuth ? { opacity: 0.82 } : undefined)
+    : (isAuth ? { opacity: 0.55 } : undefined)
 
   const defaultAuthVeil = {
-    background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.78) 0%, rgba(207, 250, 254, 0.72) 100%)',
+    background: 'radial-gradient(circle at 50% 50%, transparent 40%, rgba(6, 14, 28, 0.85) 100%), linear-gradient(180deg, rgba(6, 14, 28, 0.78) 0%, rgba(6, 14, 28, 0.60) 100%)',
   }
   const computedVeilStyle = veilStyle || (isAuth ? defaultAuthVeil : undefined)
 
@@ -279,7 +279,7 @@ export default function SceneBackdrop({
                 draggable="false"
                 style={{
                   objectPosition: scene.focal || '50% 50%',
-                  filter: isAuth ? 'saturate(1.05) brightness(1.02)' : 'saturate(0.9) brightness(1.04)',
+                  filter: isAuth ? 'blur(2px) saturate(0.9) brightness(0.95)' : 'saturate(0.9) brightness(1.04)',
                   animationDuration: isAuth ? '8000ms' : `${DWELL_TIME}ms`,
                 }}
               />

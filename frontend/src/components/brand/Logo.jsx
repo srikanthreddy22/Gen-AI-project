@@ -10,8 +10,8 @@ export default function Logo({ markOnly = false, size = 42, className = '', anim
     <div className={`brand-lockup ${className}`.trim()}>
       <LogoIcon size={size} animated={animated} decorative />
       <span className="brand-lockup-copy">
-        <span className="brand-lockup-name">NoteBot</span>
-        <span className="brand-lockup-caption">Study notes</span>
+        <span className="brand-lockup-name" style={{ color: '#F8FAFC' }}>NoteBot</span>
+        <span className="brand-lockup-caption" style={{ color: '#CBD5E1' }}>Study notes</span>
       </span>
     </div>
   )

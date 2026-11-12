@@ -264,6 +264,13 @@ input::placeholder, textarea::placeholder { color: var(--ink-soft); opacity: 1; 
   from { transform: scale(1.02) translate3d(-1%, -1%, 0); }
   to { transform: scale(1.08) translate3d(1%, 1%, 0); }
 }
+@keyframes auth-ken-burns {
+  from { transform: scale(1.00) translate3d(0, 0, 0); }
+  to { transform: scale(1.06) translate3d(0.5%, -0.5%, 0); }
+}
+.scene-image-auth {
+  animation: auth-ken-burns 8s ease-in-out forwards !important;
+}
 @keyframes blob-drift {
   from { transform: translate3d(-18px, 12px, 0); }
   to { transform: translate3d(22px, -18px, 0); }

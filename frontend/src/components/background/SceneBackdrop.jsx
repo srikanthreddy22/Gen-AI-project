@@ -14,7 +14,13 @@ function shuffled(items) {
   return result
 }
 
-export default function SceneBackdrop() {
+export default function SceneBackdrop({
+  variant = 'default',
+  veilStyle = null,
+  imageStackOpacity = null,
+  showBlobs = true,
+  children = null,
+} = {}) {
   const [layers, setLayers] = useState([null, null])
   const [activeScene, setActiveScene] = useState(null)
   const [incomingScene, setIncomingScene] = useState(null)
@@ -241,10 +247,20 @@ export default function SceneBackdrop() {
     (incomingScene && incomingSlot === slot) || (!incomingScene && activeScene && activeSlot === slot)
   )
 
+  const isAuth = variant === 'auth'
+  const computedImageStackStyle = imageStackOpacity !== null
+    ? { opacity: imageStackOpacity }
+    : (isAuth ? { opacity: 0.82 } : undefined)
+
+  const defaultAuthVeil = {
+    background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.78) 0%, rgba(207, 250, 254, 0.72) 100%)',
+  }
+  const computedVeilStyle = veilStyle || (isAuth ? defaultAuthVeil : undefined)
+
   return (
     <>
       <div className="scene-backdrop" aria-hidden="true">
-        <div className="scene-image-stack">
+        <div className="scene-image-stack" style={computedImageStackStyle}>
           {layers.map((scene, slot) => scene && (
             <div
               className={`scene-layer${incomingScene?.id === scene.id ? ' scene-layer-entering' : ''}`}
@@ -257,25 +273,28 @@ export default function SceneBackdrop() {
               }}
             >
               <img
-                className={`scene-image${reducedMotion ? ' scene-image-static' : ''}`}
+                className={`scene-image${reducedMotion ? ' scene-image-static' : (isAuth ? ' scene-image-auth' : '')}`}
                 src={scene.src}
                 alt=""
                 draggable="false"
                 style={{
                   objectPosition: scene.focal || '50% 50%',
-                  filter: 'saturate(0.9) brightness(1.04)',
-                  animationDuration: `${DWELL_TIME}ms`,
+                  filter: isAuth ? 'saturate(1.05) brightness(1.02)' : 'saturate(0.9) brightness(1.04)',
+                  animationDuration: isAuth ? '8000ms' : `${DWELL_TIME}ms`,
                 }}
               />
             </div>
           ))}
         </div>
-        <div className="scene-warm-veil" />
-        <div className="scene-blobs">
-          <div className="scene-blob scene-blob-coral" />
-          <div className="scene-blob scene-blob-saffron" />
-          <div className="scene-blob scene-blob-teal" />
-        </div>
+        <div className="scene-warm-veil" style={computedVeilStyle} />
+        {(!isAuth && showBlobs) && (
+          <div className="scene-blobs">
+            <div className="scene-blob scene-blob-coral" />
+            <div className="scene-blob scene-blob-saffron" />
+            <div className="scene-blob scene-blob-teal" />
+          </div>
+        )}
+        {children}
       </div>
     </>
   )

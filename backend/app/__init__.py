@@ -64,7 +64,15 @@ def create_app(config_override=None):
             r"/*": {
                 "origins": allowed_origins,
                 "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-                "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+                "allow_headers": [
+                    "Content-Type",
+                    "Authorization",
+                    "X-Requested-With",
+                    "Accept",
+                    "Origin",
+                    "X-CSRF-Token",
+                    "X-CSRF-TOKEN",
+                ],
                 "supports_credentials": True,
             }
         },
